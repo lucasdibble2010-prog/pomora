@@ -535,7 +535,12 @@
   #bgOverlay { display: none; }
   /* Extra dim that fades IN when the timer starts (focus mode), so the timer
      stands out, and fades OUT on pause/reset. */
-  #startDim { display: none; }
+  #startDim {
+    position: fixed; inset: 0; z-index: -1;
+    background: #000; opacity: 0; pointer-events: none;
+    transition: opacity 0.6s ease;
+  }
+  body.focus-mode #startDim { opacity: 0.3; }
 
   /* (#6) PAUSE LIGHTING: a soft radial glow that gently eases IN when paused
      and fades out on resume. It sits above the background but below the page
@@ -2036,7 +2041,6 @@ const BG_MAX_PROBE = 30;
 // background2.jpg, and so on. If you have more images than names, the extras
 // just show "Background 3", "Background 4", etc.
 const BACKGROUND_NAMES = [
-  "Misty Mountains",
   "Starlit Valley",
   "Golden Dunes",
   "Northern Lights",
