@@ -2108,8 +2108,6 @@ async function detectBackgrounds() {
     const url = `images/background${n}.jpg`;
     if (await imageExists(url)) {
       backgrounds.push(url);
-    } else {
-      break; // first gap = end of the list
     }
   }
   // Make sure the saved index still points at a real image.
