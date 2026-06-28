@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Notes — Pomora</title>
+
+<!-- Same font families as the main app, plus a few choices for the editor's
+     font dropdown. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lora:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+  /* =====================================================================
+     THEME VARIABLES — light by default. Adding class "dark" to <body>
+     swaps these to the dark values, so everything re-colors at once.
+     ===================================================================== */
+  :root {
+    --bg: #f4f5f8;
+    --surface: #ffffff;
+    --text: #1f2330;
+    --text-dim: #6b7180;
+    --border: #e3e5ea;
+    --accent: #5b6cff;
+    --font-display: "Space Grotesk", sans-serif;
+    --font-body: "Inter", sans-serif;
+  }
+  body.dark {
+    --bg: #1b1e2a;
+    --surface: #252938;
+    --text: #eef0f6;
+    --text-dim: #a2a8b8;
+    --border: rgba(255, 255, 255, 0.12);
+    --accent: #7c8bff;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-body);
+    background: var(--bg); color: var(--text);
+    min-height: 100vh;
+    transition: background 0.3s ease, color 0.3s ease;
+  }
+
+  /* ---- Header (logo + back to app) ---- */
+  header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 16px 24px; border-bottom: 1px solid var(--border);
+  }
+  .brand {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--font-display); font-weight: 700; font-size: 1.2rem;
+    color: var(--text); text-decoration: none;
+  }
+  .brand svg { fill: var(--text); }
+  .back-link {
+    color: var(--text-dim); text-decoration: none; font-weight: 600;
+    font-size: 0.9rem; padding: 8px 14px; border-radius: 8px;
+    transition: background 0.2s ease, color 0.2s ease;
+  }
+  .back-link:hover { background: var(--surface); color: var(--text); }
+
+  main { padding: 28px 24px 60px; max-width: 1000px; margin: 0 auto; }
+
+  /* Only one "screen" is visible at a time (toggled in JS). */
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  /* =====================================================================
+     1) CHOOSER (Type / Draw)
+     ===================================================================== */
+  .chooser { text-align: center; padding: 40px 0; }
+  .chooser h1 { font-family: var(--font-display); font-size: 1.8rem; margin-bottom: 26px; }
+  .choices { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; }
+  .choice {
+    width: 200px; height: 200px; border-radius: 18px;
+    border: 2px solid var(--border); background: var(--surface); color: var(--text);
+    font-family: var(--font-display); font-size: 1.3rem; font-weight: 600;
+    cursor: pointer; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 12px;
+    transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .choice .emoji { font-size: 2.6rem; }
+  .choice:hover { transform: translateY(-4px); border-color: var(--accent); box-shadow: 0 12px 30px rgba(0,0,0,0.12); }
+  /* "Draw" is present but not ready yet */
+  .choice.disabled { cursor: not-allowed; opacity: 0.6; }
+  .choice.disabled:hover { transform: none; border-color: var(--border); box-shadow: none; }
+  .choice .soon { font-size: 0.72rem; font-family: var(--font-body); color: var(--text-dim); font-weight: 600; }
+  .link-btn {
+    background: none; border: none; color: var(--text-dim); cursor: pointer;
+    font-weight: 600; font-size: 0.9rem; margin-top: 24px; font-family: var(--font-body);
+  }
+  .link-btn:hover { color: var(--text); }
+
+  /* Smooth fade-in (used on the chooser). */
+  .fade-in { animation: fadeUp 0.6s ease both; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  @media (prefers-reduced-motion: reduce) { .fade-in { animation: none; } }
+
+  /* =====================================================================
+     2) GALLERY / LIBRARY
+     ===================================================================== */
+  .lib-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+  .lib-head h1 { font-family: var(--font-display); font-size: 1.8rem; }
+  .gallery {
+    display: grid; gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  }
+  .card {
+    position: relative; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 18px; min-height: 130px; cursor: pointer;
+    display: flex; flex-direction: column; transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .card:hover { transform: translateY(-3px); box-shadow: 0 12px 28px rgba(0,0,0,0.12); }
+  .card .card-name { font-family: var(--font-display); font-weight: 600; font-size: 1.05rem; margin-bottom: 6px; word-break: break-word; }
+  .card .card-preview { color: var(--text-dim); font-size: 0.85rem; flex: 1; overflow: hidden; }
+  .card .card-date { color: var(--text-dim); font-size: 0.72rem; margin-top: 10px; }
+  .card .card-del {
+    position: absolute; top: 8px; right: 8px; width: 26px; height: 26px;
+    border: none; border-radius: 7px; background: rgba(0,0,0,0.06); color: var(--text-dim);
+    cursor: pointer; font-size: 0.9rem; line-height: 1; opacity: 0; transition: opacity 0.15s ease;
+  }
+  .card:hover .card-del { opacity: 1; }
+  .card .card-del:hover { background: #e2574c; color: #fff; }
+  /* The "+ new note" card */
+  .card.new-card {
+    align-items: center; justify-content: center; color: var(--accent);
+    border-style: dashed; border-width: 2px; font-weight: 700; font-size: 1rem;
+  }
+  .card.new-card .plus { font-size: 2.4rem; line-height: 1; margin-bottom: 4px; }
+
+  /* =====================================================================
+     3) EDITOR (Type view)
+     ===================================================================== */
+  .editor-top { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  #noteName {
+    flex: 1; min-width: 140px; border: none; background: transparent; color: var(--text);
+    font-family: var(--font-display); font-size: 1.4rem; font-weight: 600; outline: none;
+    border-bottom: 2px solid transparent; padding: 4px 2px;
+  }
+  #noteName:focus { border-bottom-color: var(--accent); }
+  .primary {
+    background: var(--accent); color: #fff; border: none; border-radius: 9px;
+    padding: 9px 20px; font-weight: 700; cursor: pointer; font-family: var(--font-body);
+  }
+  .primary:hover { filter: brightness(1.08); }
+  .saved-tag { color: var(--text-dim); font-size: 0.8rem; }
+
+  .toolbar {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px; margin-bottom: 14px;
+  }
+  .toolbar select, .toolbar button {
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    border-radius: 7px; padding: 7px 10px; font-size: 0.85rem; cursor: pointer;
+    font-family: var(--font-body);
+  }
+  .toolbar button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .toolbar .tool-bold { font-weight: 800; width: 38px; }
+
+  #noteContent {
+    width: 100%; min-height: 60vh; resize: vertical;
+    border: 1px solid var(--border); border-radius: 12px; padding: 18px;
+    background: var(--surface); color: var(--text); outline: none;
+    font-size: 1rem; line-height: 1.6; font-family: var(--font-body);
+  }
+  #noteContent:focus { border-color: var(--accent); }
+
+  @media (max-width: 480px) {
+    .choice { width: 150px; height: 150px; font-size: 1.1rem; }
+    main { padding: 20px 16px 50px; }
+  }
+</style>
+</head>
+
+<body>
+  <header>
+    <a class="brand" href="index.html">
+      <svg viewBox="0 0 100 100" width="24" height="24" xmlns="http://www.w3.org/2000/svg" aria-label="Pomora star">
+        <polygon points="50,5 63,27.5 89,27.5 76,50 89,72.5 63,72.5 50,95 37,72.5 11,72.5 24,50 11,27.5 37,27.5" />
+      </svg>
+      Pomora Notes
+    </a>
+    <a class="back-link" href="index.html">← Back to timer</a>
+  </header>
+
+  <main>
+    <!-- 1) CHOOSER -->
+    <section class="screen" id="screen-chooser">
+      <div class="chooser fade-in" id="chooserBox">
+        <h1>New note</h1>
+        <div class="choices">
+          <button class="choice" id="chooseType">
+            <span class="emoji">✍️</span> Type
+          </button>
+          <button class="choice disabled" id="chooseDraw">
+            <span class="emoji">🎨</span> Draw
+            <span class="soon">Coming soon</span>
+          </button>
+        </div>
+        <button class="link-btn" id="chooserBack">← Back to library</button>
+      </div>
+    </section>
+
+    <!-- 2) LIBRARY / GALLERY -->
+    <section class="screen" id="screen-library">
+      <div class="lib-head"><h1>Your notes</h1></div>
+      <div class="gallery" id="gallery"><!-- cards built by JS --></div>
+    </section>
+
+    <!-- 3) EDITOR (Type) -->
+    <section class="screen" id="screen-editor">
+      <div class="editor-top">
+        <button class="link-btn" id="editorBack" style="margin:0;">← Library</button>
+        <input id="noteName" placeholder="Untitled" />
+        <span class="saved-tag" id="savedTag"></span>
+        <button class="primary" id="saveNote">Save</button>
+      </div>
+      <div class="toolbar">
+        <select id="fontFamily" title="Font">
+          <option value='"Inter", sans-serif'>Inter</option>
+          <option value='"Space Grotesk", sans-serif'>Space Grotesk</option>
+          <option value='"Poppins", sans-serif'>Poppins</option>
+          <option value='"Lora", serif'>Lora</option>
+          <option value='"Roboto Mono", monospace'>Roboto Mono</option>
+        </select>
+        <select id="fontSize" title="Size">
+          <option value="14px">14</option>
+          <option value="16px" selected>16</option>
+          <option value="18px">18</option>
+          <option value="20px">20</option>
+          <option value="24px">24</option>
+          <option value="28px">28</option>
+        </select>
+        <button class="tool-bold" id="boldToggle" title="Bold">B</button>
+        <button id="pageThemeToggle" title="Light/Dark">🌙 Dark</button>
+      </div>
+      <textarea id="noteContent" placeholder="Start typing…"></textarea>
+    </section>
+  </main>
+
+<script>
+/* ============================================================
+   NOTES PAGE LOGIC (vanilla JS)
+   ============================================================ */
+const $ = (id) => document.getElementById(id);
+
+// >>> Everything is stored in localStorage under these keys. <<<
+const NOTES_KEY = "pomora.notesList";  // the array of notes
+const PREFS_KEY = "pomora.notesPrefs"; // editor + page preferences
+
+// >>> Auto-save waits this long after you stop typing before saving. <<<
+const AUTOSAVE_MS = 600;
+
+// ---- Load saved data (or sensible defaults) -------------------------------
+let notes = JSON.parse(localStorage.getItem(NOTES_KEY) || "[]");
+let prefs = Object.assign(
+  { dark: false, fontFamily: '"Inter", sans-serif', fontSize: "16px", bold: false },
+  JSON.parse(localStorage.getItem(PREFS_KEY) || "{}")
+);
+
+let currentNoteId = null;   // id of the note being edited (null = brand new)
+let autosaveTimer = null;   // debounce handle
+
+function saveNotes()  { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); }
+function savePrefs()  { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); }
+
+// ---- Screen switching (only one visible at a time) ------------------------
+function showScreen(name) {
+  document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
+  $("screen-" + name).classList.add("active");
+}
+
+// ---- Page light/dark ------------------------------------------------------
+function applyTheme() {
+  document.body.classList.toggle("dark", prefs.dark);
+  $("pageThemeToggle").textContent = prefs.dark ? "☀️ Light" : "🌙 Dark";
+}
+
+// Format a timestamp like "Jun 26, 2026, 2:14 PM".
+function formatDate(ts) {
+  return new Date(ts).toLocaleString(undefined, {
+    month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
+  });
+}
+
+/* ---- 1) CHOOSER ---------------------------------------------------------- */
+function showChooser() {
+  // Only offer "Back to library" if there's at least one note.
+  $("chooserBack").style.display = notes.length ? "inline-block" : "none";
+  showScreen("chooser");
+  // Re-trigger the fade-in animation each time the chooser appears.
+  const box = $("chooserBox");
+  box.classList.remove("fade-in");
+  void box.offsetWidth;          // force reflow so the animation can replay
+  box.classList.add("fade-in");
+}
+$("chooseType").addEventListener("click", () => openEditor(null)); // new text note
+$("chooseDraw").addEventListener("click", () => {/* disabled: coming soon */});
+$("chooserBack").addEventListener("click", showLibrary);
+
+/* ---- 2) LIBRARY ---------------------------------------------------------- */
+function showLibrary() {
+  renderGallery();
+  showScreen("library");
+}
+function renderGallery() {
+  const gallery = $("gallery");
+  gallery.innerHTML = "";
+
+  // The "+ new note" card always comes first.
+  const newCard = document.createElement("div");
+  newCard.className = "card new-card";
+  newCard.innerHTML = `<div class="plus">+</div><div>New note</div>`;
+  newCard.addEventListener("click", showChooser); // goes through Type/Draw chooser
+  gallery.appendChild(newCard);
+
+  // Newest notes first.
+  [...notes].sort((a, b) => b.lastEdited - a.lastEdited).forEach((note) => {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+      <button class="card-del" title="Delete">🗑</button>
+      <div class="card-name">${escapeHtml(note.name)}</div>
+      <div class="card-preview">${escapeHtml((note.content || "").slice(0, 90))}</div>
+      <div class="card-date">${formatDate(note.lastEdited)}</div>
+    `;
+    // Click the card body to reopen the note.
+    card.addEventListener("click", () => openEditor(note.id));
+    // Click the trash icon to delete (stopPropagation so it doesn't also open).
+    card.querySelector(".card-del").addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (confirm("Delete this note?")) {
+        notes = notes.filter((n) => n.id !== note.id);
+        saveNotes();
+        renderGallery();
+      }
+    });
+    gallery.appendChild(card);
+  });
+}
+
+// Stop note names/content from injecting HTML.
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+/* ---- 3) EDITOR ----------------------------------------------------------- */
+function applyEditorPrefs() {
+  $("noteContent").style.fontFamily = prefs.fontFamily;
+  $("noteContent").style.fontSize = prefs.fontSize;
+  $("noteContent").style.fontWeight = prefs.bold ? "700" : "400";
+  $("fontFamily").value = prefs.fontFamily;
+  $("fontSize").value = prefs.fontSize;
+  $("boldToggle").classList.toggle("active", prefs.bold);
+}
+
+// Open the editor for an existing note (by id) or a brand-new one (id = null).
+function openEditor(id) {
+  currentNoteId = id;
+  const note = notes.find((n) => n.id === id);
+  $("noteName").value = note ? note.name : "";
+  $("noteContent").value = note ? note.content : "";
+  $("savedTag").textContent = "";
+  applyEditorPrefs();
+  showScreen("editor");
+  $("noteContent").focus();
+}
+
+// Create or update the current note from the inputs. Returns the saved note.
+function saveCurrentNote(showTag) {
+  const name = $("noteName").value.trim() || "Untitled"; // default name
+  const content = $("noteContent").value;
+
+  let note = notes.find((n) => n.id === currentNoteId);
+  if (note) {
+    note.name = name;
+    note.content = content;
+    note.lastEdited = Date.now();
+  } else {
+    // New note: give it an id and add to the array.
+    note = { id: Date.now(), name, type: "text", content, lastEdited: Date.now() };
+    notes.push(note);
+    currentNoteId = note.id; // so further edits update THIS note
+  }
+  saveNotes();
+  if (showTag) {
+    $("savedTag").textContent = "Saved ✓";
+    setTimeout(() => { $("savedTag").textContent = ""; }, 1500);
+  }
+  return note;
+}
+
+// Auto-save (debounced) while typing the name or the content.
+function scheduleAutosave() {
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => saveCurrentNote(false), AUTOSAVE_MS);
+}
+$("noteName").addEventListener("input", scheduleAutosave);
+$("noteContent").addEventListener("input", scheduleAutosave);
+
+// Save button: save now and go back to the library.
+$("saveNote").addEventListener("click", () => { saveCurrentNote(true); showLibrary(); });
+$("editorBack").addEventListener("click", () => { saveCurrentNote(false); showLibrary(); });
+
+// Toolbar controls (apply live + remember the choice).
+$("fontFamily").addEventListener("change", (e) => {
+  prefs.fontFamily = e.target.value; savePrefs(); applyEditorPrefs();
+});
+$("fontSize").addEventListener("change", (e) => {
+  prefs.fontSize = e.target.value; savePrefs(); applyEditorPrefs();
+});
+$("boldToggle").addEventListener("click", () => {
+  prefs.bold = !prefs.bold; savePrefs(); applyEditorPrefs();
+});
+$("pageThemeToggle").addEventListener("click", () => {
+  prefs.dark = !prefs.dark; savePrefs(); applyTheme();
+});
+
+/* ---- Initial load -------------------------------------------------------- */
+applyTheme();
+// If the user already has notes, land on the gallery; otherwise show the
+// chooser (with its fade-in) so they can make their first note.
+if (notes.length) { showLibrary(); } else { showChooser(); }
+</script>
+</body>
+</html>

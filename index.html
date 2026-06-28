@@ -1,0 +1,4120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pomora Timer</title>
+
+<!-- =========================================================================
+     GOOGLE FONTS
+     "Space Grotesk" = distinctive display font for the big timer + headings.
+     "Inter"         = clean modern sans-serif for body text, buttons, tasks.
+     The preconnect lines just make the fonts download a little faster.
+     ========================================================================= -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Curated font choices for the per-element font pickers (settings).
+     To add another font: add it to this URL AND to FONT_CHOICES in the JS. -->
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Lora:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<!-- =========================================================================
+     STYLES
+     All CSS lives here. The page is themed using CSS custom properties
+     (variables) declared on the <body>. JavaScript swaps those variables
+     to change the color depending on the current mode + chosen theme.
+     ========================================================================= -->
+<style>
+  /* ---- Design tokens / theme variables ---------------------------------- */
+  /* These defaults are overwritten from JS. Defining them here keeps the
+     first paint sensible even before JS runs. */
+  :root {
+    --bg: #ba4949;        /* page background (changes with mode) */
+    --accent: #ba4949;    /* buttons / highlights */
+    --panel: rgba(255, 255, 255, 0.1); /* translucent card background */
+    --text: #ffffff;
+    --text-dim: rgba(255, 255, 255, 0.7);
+    --brand: #FFFFFF;     /* Pomora wordmark color — now white for visibility */
+    /* Two font "families" used throughout. Change these in one place. */
+    --font-display: "Space Grotesk", sans-serif; /* timer + headings */
+    --font-body: "Inter", sans-serif;            /* everything else */
+    --font-settings: "Plus Jakarta Sans", sans-serif; /* settings panel only */
+    /* Per-element fonts (changed live by the font pickers in Settings). These
+       defaults are used until the user picks something else. */
+    --font-timer: var(--font-display);  /* the big MM:SS digits */
+    --font-tasks: var(--font-body);     /* the task list */
+    --font-button: var(--font-body);    /* the Start/Stop button */
+    --font-modes: var(--font-body);     /* Focus / Short / Long labels */
+    /* Easing for the Start focus-mode animation. */
+    --ease: cubic-bezier(0.4, 0.0, 0.2, 1);
+    /* Gentle easing used for the pause return AND the unpause (#1, #9). */
+    --ease-pause: cubic-bezier(0.25, 0.1, 0.25, 1);
+    /* >>> (#1) UNPAUSE/START animation length — change this ONE value. <<< */
+    --unpause-dur: 4.5s;
+    /* >>> (#2) How fast the XP bar hides on Start (it returns normally on pause). <<< */
+    --xp-hide-dur: 0.25s;
+    /* >>> PAUSE animation length — ONE place to fine-tune the pause smoothness. <<< */
+    --pause-dur: 0.7s;
+    /* >>> (#4) THEME-SWAP fade length (dark/light + theme color changes). <<< */
+    --theme-fade: 0.4s;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* (#5) Subtle press feedback on EVERY button: a quick scale-down on click.
+     Buttons with their own :active style (e.g. .start-btn) keep theirs because
+     a class selector is more specific than this generic one. */
+  button { transition: transform 0.12s ease; }
+  button:active { transform: scale(0.96); }
+  @media (prefers-reduced-motion: reduce) { button:active { transform: none; } }
+
+  /* (#3) GLOBAL LIGHT MODE — adding class "light" to <body> swaps the core
+     palette to a light scheme. The background photo stays; the overlay becomes
+     a light veil and text becomes dark so it's still readable. */
+  body.light {
+    --text: #20242e;
+    --text-dim: rgba(32, 36, 46, 0.62);
+    --panel: rgba(0, 0, 0, 0.06);
+    --brand: #20242e;
+  }
+  body.light #bgOverlay { background: rgba(255, 255, 255, 0.6); } /* light veil */
+
+  /* (#4) THEME-SWAP CROSS-FADE: interpolating colors over --theme-fade gives a
+     smooth, gap-free swap (no flash) when the theme or dark/light changes. */
+  .session-count, .session-count strong, .brand, .greeting,
+  .xp-info span, .tasks-head h2, .finish-time, .task-name, .task-est {
+    transition: color var(--theme-fade) ease-in-out;
+  }
+  /* Reduced motion: make every theme fade instant — one knob covers them all. */
+  @media (prefers-reduced-motion: reduce) { :root { --theme-fade: 0s; } }
+
+  body {
+    font-family: var(--font-body);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    /* (#4) Cross-fade the background AND text color on theme/mode change. */
+    transition: background-color var(--theme-fade) ease-in-out,
+                color var(--theme-fade) ease-in-out;
+    /* Big bottom padding leaves room for the fixed Spotify/bg controls so they
+       don't sit on top of the last info section. */
+    padding: 24px 16px 120px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* ---- Top bar ----------------------------------------------------------- */
+  header {
+    width: 100%;
+    max-width: 520px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 4px 12px;
+    /* the old border-bottom divider is now the .progress-track below */
+  }
+
+  /* Progress line = the divider below the header AND the countdown bar.
+     .progress-fill scales horizontally from 1 (full) to 0 (empty). */
+  .progress-track {
+    width: 100%; max-width: 520px;
+    height: 3px; border-radius: 3px;
+    background: rgba(255, 255, 255, 0.18); /* the faint track */
+    overflow: hidden;
+    margin-bottom: 28px;
+  }
+  .progress-fill {
+    height: 100%; width: 100%;
+    background: var(--accent);     /* themed color (matches the current mode) */
+    transform-origin: left center; /* shrink from the right toward the left */
+    transform: scaleX(1);
+  }
+
+  /* ---- Top area: greeting + monthly XP bar ----------------------------- */
+  .user-bar {
+    width: 100%; max-width: 520px; margin: -10px 0 22px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .greeting { font-family: var(--font-display); font-weight: 600; font-size: 1.05rem; }
+  .xp-wrap { display: flex; flex-direction: column; gap: 4px; }
+  .xp-info { display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-dim); font-weight: 600; }
+  .xp-track { width: 100%; height: 8px; border-radius: 8px; background: rgba(255, 255, 255, 0.18); overflow: hidden; }
+  .xp-fill {
+    height: 100%; width: 0%;             /* width set by JS = XP percent */
+    background: #ffd54a;                 /* gold XP bar */
+    border-radius: 8px; transition: width 0.5s ease;
+  }
+
+  .brand {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--font-display); font-weight: 700; font-size: 1.25rem;
+    letter-spacing: 0.5px; color: var(--brand); /* white wordmark + white star */
+  }
+  .brand .logo {
+    flex-shrink: 0;
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.4s ease;
+  }
+  .brand:hover .logo {
+    transform: rotate(20deg) scale(1.2);
+    filter: drop-shadow(0 0 8px rgba(255,255,255,0.45));
+  }
+  .brand .brand-name {
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), letter-spacing 0.4s ease, text-shadow 0.4s ease;
+    display: inline-block;
+  }
+  .brand:hover .brand-name {
+    transform: scale(1.08);
+    letter-spacing: 2px;
+    text-shadow: 0 0 10px rgba(255,255,255,0.35);
+  }
+  .top-buttons { display: flex; gap: 8px; }
+
+  /* Generic small translucent button used in the header (works on <button>
+     and on the Notes <a> link). */
+  .icon-btn {
+    background: var(--panel);
+    color: var(--text);
+    border: none;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;        /* for the <a> version */
+    display: inline-flex; align-items: center;
+    transition: background 0.2s ease, transform 0.1s ease;
+  }
+  .icon-btn:hover { background: rgba(255, 255, 255, 0.25); }
+  .icon-btn:active { transform: scale(0.96); }
+
+  /* ---- Main timer card --------------------------------------------------- */
+  /* main is now a full-width centering column. Each child caps its OWN width,
+     so the timer/tasks stay narrow (480) while the info sections can be wider. */
+  main { width: 100%; display: flex; flex-direction: column; align-items: center; }
+
+  .card {
+    width: 100%; max-width: 480px;
+    background: var(--panel);
+    border-radius: 16px;
+    padding: 24px 20px 32px;
+    text-align: center;
+  }
+
+  /* HERO: makes the timer fill the first screen (viewport height minus header). */
+  .hero {
+    width: 100%; max-width: 480px;
+    min-height: calc(100vh - 150px);
+    display: flex; flex-direction: column; align-items: center;
+    /* (#4) Center the timer in the viewport but nudge it slightly UP: extra
+       bottom padding pushes the centered content a little above the middle.
+       >>> TWEAK THE TIMER'S VERTICAL POSITION with padding-bottom here:
+           bigger = higher up, smaller/0 = dead center. <<< */
+    justify-content: center; padding-bottom: 9vh;
+    position: relative;
+    transition: min-height 0.7s var(--ease-pause);
+  }
+
+  /* ---- Scrollable info sections below the timer ------------------------- */
+  .info {
+    width: 100%; max-width: 720px; margin-top: 36px;
+    background: var(--panel); border-radius: 16px;
+    padding: 30px 28px;
+  }
+  .info h2 {
+    font-family: var(--font-display); font-size: 1.6rem; font-weight: 600;
+    margin-bottom: 14px;
+  }
+  .info p {
+    color: var(--text-dim); line-height: 1.75; font-size: 1rem;
+    margin-bottom: 14px;
+  }
+  .info p:last-child { margin-bottom: 0; }
+
+  /* ---- Work row: tasks + Spotify sit SIDE BY SIDE in normal page flow ----
+     A plain flex row — no fixed/absolute positioning, so it scrolls with the
+     page and can't cover anything below it. To put Spotify on the LEFT of the
+     tasks instead of the right, add  flex-direction: row-reverse;  here. */
+  .work-row {
+    width: 100%; max-width: 800px; margin-top: 64px; /* (#3) sections sit a bit lower */
+    display: flex; gap: 20px; align-items: flex-start;
+    transition: max-width 0.4s ease; /* eases the narrowing on Start */
+  }
+  .work-row .tasks { flex: 1 1 auto; margin-top: 0; } /* tasks fill the rest */
+  .work-row .spotify { flex: 0 0 300px; }             /* Spotify fixed 300px wide */
+
+  /* Spotify is a normal in-flow element in the DEFAULT state (idle/paused):
+     it stays beside the tasks and NEVER moves on pause. No border/background of
+     our own — just the bare embed (its rounded corners + dark inside are
+     Spotify's own and can't be removed). We keep only the transitions used by
+     the focus-mode/delayed-entrance animations. */
+  .spotify {
+    transition: width 0.7s var(--ease-pause), opacity 0.7s var(--ease-pause),
+                transform 0.7s var(--ease-pause);
+  }
+  .spotify iframe {
+    display: block; width: 100%; height: 352px; border: 0;
+    transition: height 0.4s ease; /* smooth height change into the rectangle */
+  }
+
+  /* =======================================================================
+     FOCUS MODE (timer running): the Spotify player becomes a WIDE RECTANGLE
+     centered directly below the timer. In focus mode the tasks are already
+     collapsed, so we stack the work row into a single centered column and the
+     player fills its width. The hero shrinks (min-height: auto) so the timer
+     and the player sit together instead of a full screen apart.
+
+     >>> ADJUST THE RECTANGLE PLAYER HERE <<<
+       - .work-row max-width below = how WIDE the rectangle is
+       - the iframe height below   = how TALL (shorter) the rectangle is
+     ======================================================================= */
+  /* (#3) In focus mode the hero stays FULL height so the timer is alone in the
+     first screen — the Spotify player stays DOWN the page (below the fold) and
+     is revealed by the scroll-in effect (it has class="reveal"). When the tasks
+     collapse, the player becomes a centered full-width rectangle below them. */
+  body.focus-mode .work-row {
+    flex-direction: column; align-items: center;
+    max-width: 480px;            /* rectangle width (matches the timer card) */
+  }
+  body.focus-mode .work-row .spotify { flex: none; width: 100%; }
+  body.focus-mode .spotify iframe { height: 152px; } /* rectangle height */
+
+  /* Gentle timer scale-up in focus mode (#2): the card grows slightly and
+     eases smoothly back to its resting size on Pause. */
+  .card { transition: transform var(--pause-dur) var(--ease-pause),
+                      background-color var(--theme-fade) ease-in-out; } /* (#4) */
+  body.focus-mode .card { transform: scale(1.05); }
+
+  /* Mode tabs (Focus / Short Break / Long Break) */
+  .modes { display: flex; justify-content: center; gap: 8px; margin-bottom: 24px; max-width: 420px; margin-left: auto; margin-right: auto; }
+  .mode-tab {
+    background: transparent;
+    color: var(--text);
+    border: none;
+    border-radius: 8px;
+    padding: 8px 14px;
+    flex: 1;
+    text-align: center;
+    font-family: var(--font-modes); /* font picker: mode labels */
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: background 0.2s ease, opacity 0.2s ease,
+                color var(--theme-fade) ease-in-out; /* (#4) cross-fade text color */
+  }
+  .mode-tab:hover { opacity: 1; }
+  /* The active mode tab gets a solid translucent background */
+  .mode-tab.active { background: rgba(255, 255, 255, 0.2); opacity: 1; }
+
+  /* The big MM:SS countdown — uses the display font, large and bold */
+  .time {
+    font-family: var(--font-timer); /* font picker: timer digits */
+    font-size: clamp(5.5rem, 24vw, 9rem);
+    font-weight: 700;
+    letter-spacing: -2px;
+    line-height: 1;
+    margin: 12px 0 28px;
+    font-variant-numeric: tabular-nums; /* keeps digits from shifting width */
+  }
+
+  /* Start / Pause main action button */
+  .start-btn {
+    background: #ffffff;
+    color: var(--accent);
+    border: none;
+    border-radius: 10px;
+    padding: 16px 0;
+    width: 200px;
+    font-family: var(--font-button); /* font picker: Start/Stop button */
+    font-size: 1.3rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: pointer;
+    box-shadow: 0 6px 0 rgba(0, 0, 0, 0.15);
+    transition: transform 0.08s ease, box-shadow 0.08s ease;
+  }
+  .start-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 rgba(0, 0, 0, 0.15); }
+
+  /* Reset button sits next to / below Start */
+  .reset-btn {
+    background: transparent;
+    color: var(--text);
+    border: none;
+    font-size: 1.4rem;
+    cursor: pointer;
+    margin-left: 8px;
+    opacity: 0.85;
+    vertical-align: middle;
+  }
+  .reset-btn:hover { opacity: 1; }
+
+  .session-count { margin-top: 22px; color: var(--text-dim); font-size: 0.95rem; }
+  .session-count strong { color: var(--text); }
+
+  /* ---- Task list --------------------------------------------------------- */
+  .tasks { width: 100%; max-width: 480px; margin-top: 40px; }
+  .tasks-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding-bottom: 10px; margin-bottom: 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+  }
+  .tasks-head h2 { font-size: 1.1rem; }
+  .finish-time { color: var(--text-dim); font-size: 0.85rem; }
+
+  ul#taskList { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+
+  .task {
+    background: var(--panel);
+    border-radius: 10px;
+    padding: 14px 16px;
+    font-family: var(--font-tasks); /* font picker: task list */
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-left: 6px solid transparent;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease;
+  }
+  /* The currently selected/active task is highlighted with a left border */
+  .task.active { border-left-color: #ffffff; background: rgba(255, 255, 255, 0.18); }
+  .task.done .task-name { text-decoration: line-through; opacity: 0.5; }
+
+  /* (#1) A newly added task fades + slides in smoothly (only the new one gets
+     the .task-enter class, so the rest of the list doesn't re-animate). */
+  .task-enter { animation: taskIn 0.3s ease both; }
+  @keyframes taskIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) { .task-enter { animation: none; } }
+
+  .task .check {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 2px solid var(--text-dim);
+    flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+    line-height: 1; /* keeps the ✓ glyph centered, not sitting low */
+    font-size: 0.8rem; color: var(--bg); background: transparent;
+  }
+  /* Make sure name + meta text don't add stray vertical space in the flex row */
+  .task-name, .task-est { line-height: 1.2; }
+  .task.done .check { background: #ffffff; border-color: #ffffff; }
+
+  .task-name { flex: 1; font-weight: 600; }
+  .task-est { color: var(--text-dim); font-size: 0.9rem; }
+  .task-del {
+    background: transparent; border: none; color: var(--text-dim);
+    cursor: pointer; font-size: 1.1rem; padding: 2px 6px;
+  }
+  .task-del:hover { color: #fff; }
+
+  /* "Add task" button + the add form */
+  .add-task-btn {
+    width: 100%; margin-top: 14px;
+    background: rgba(255, 255, 255, 0.12);
+    border: 2px dashed rgba(255, 255, 255, 0.4);
+    color: var(--text);
+    border-radius: 10px; padding: 14px; font-weight: 600;
+    font-size: 1rem; cursor: pointer; transition: background 0.2s ease;
+  }
+  .add-task-btn:hover { background: rgba(255, 255, 255, 0.2); }
+
+  .add-form {
+    margin-top: 14px; background: #fff; border-radius: 10px;
+    padding: 16px; color: #333; display: none; /* shown via JS */
+  }
+  .add-form.open { display: block; }
+  .add-form input {
+    width: 100%; border: none; border-bottom: 2px solid #eee;
+    padding: 8px 4px; font-size: 1rem; margin-bottom: 12px; outline: none;
+  }
+  .add-form input[type="number"] { width: 80px; }
+  .add-form .row { display: flex; justify-content: flex-end; gap: 8px; align-items: center; }
+  .add-form button {
+    border: none; border-radius: 8px; padding: 10px 18px;
+    font-weight: 600; cursor: pointer;
+  }
+  .btn-save { background: #222; color: #fff; }
+  .btn-cancel { background: transparent; color: #888; }
+
+  /* ---- Settings / modal -------------------------------------------------- */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5);
+    display: none; align-items: flex-start; justify-content: center;
+    padding: 40px 16px; overflow-y: auto; z-index: 50;
+  }
+  .overlay.open { display: flex; }
+  /* The whole settings panel uses --font-settings (Plus Jakarta Sans) so its
+     labels, tabs and options share one clean, refined sans-serif. */
+  .modal {
+    background: #fff; color: #333; border-radius: 14px;
+    width: 100%; max-width: 420px; padding: 24px;
+    font-family: var(--font-settings);
+    letter-spacing: 0.1px;
+  }
+  /* Panel title ("Settings") — biggest text, app display font, top of hierarchy. */
+  .modal h2 { margin-bottom: 18px; font-size: 1.3rem; }
+  /* Section sub-titles (e.g. "Duration", "Auto-start"): small, spaced, muted —
+     clearly secondary to the big panel title and distinct from option text. */
+  .modal h3 {
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1.2px;
+    font-weight: 700; color: #9a9a9a; margin: 22px 0 10px;
+  }
+  .setting-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 9px 0;
+  }
+  .setting-row label { font-weight: 600; font-size: 0.95rem; color: #2c2c2c; }
+  .setting-row input[type="number"] {
+    width: 70px; padding: 8px; border: 1px solid #ddd; border-radius: 8px;
+    font-size: 1rem; text-align: center;
+  }
+  .theme-swatches { display: flex; gap: 12px; margin-top: 8px; }
+  .swatch {
+    width: 40px; height: 40px; border-radius: 50%; cursor: pointer;
+    border: 3px solid transparent; transition: transform 0.1s ease;
+  }
+  .swatch:hover { transform: scale(1.1); }
+  .swatch.selected { border-color: #222; }
+
+  /* Countdown line color picker */
+  .color-row { display: flex; align-items: center; gap: 8px; }
+  .color-row input[type="color"] {
+    width: 40px; height: 32px; border: 1px solid #ddd; border-radius: 8px;
+    padding: 2px; background: #fff; cursor: pointer;
+  }
+  .mini-btn {
+    border: 1px solid #ddd; background: #fff; border-radius: 8px;
+    padding: 7px 12px; font-size: 0.8rem; font-weight: 600; color: #444;
+    cursor: pointer; font-family: var(--font-settings);
+  }
+  .mini-btn:hover { background: #f3f3f3; }
+
+  /* Per-element font dropdowns */
+  .font-select {
+    max-width: 170px; padding: 8px 10px; border: 1px solid #ddd; border-radius: 8px;
+    font-size: 0.9rem; background: #fff; color: #333; cursor: pointer;
+  }
+
+  /* Simple toggle switch built from a checkbox */
+  .switch { position: relative; width: 48px; height: 26px; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; inset: 0; background: #ccc; border-radius: 26px;
+    cursor: pointer; transition: background 0.2s ease;
+  }
+  .slider::before {
+    content: ""; position: absolute; width: 20px; height: 20px;
+    left: 3px; top: 3px; background: #fff; border-radius: 50%;
+    transition: transform 0.2s ease;
+  }
+  .switch input:checked + .slider { background: #4caf50; }
+  .switch input:checked + .slider::before { transform: translateX(22px); }
+
+  .modal-close {
+    margin-top: 24px; width: 100%; background: #222; color: #fff;
+    border: none; border-radius: 8px; padding: 14px; font-weight: 600;
+    font-size: 1rem; cursor: pointer;
+  }
+
+  /* =======================================================================
+     NEW FEATURE 1: AESTHETIC BACKGROUND LAYERS
+     Two fixed, full-screen layers sit BEHIND everything (negative z-index):
+       #bgLayer   -> the scenery image
+       #bgOverlay -> a dark veil so text stays readable on any image
+     Regular page content has z-index 0 (auto), so it's automatically on top.
+     ======================================================================= */
+  #bgLayer {
+    position: fixed; inset: 0; z-index: -2;
+    background-size: cover; background-position: center top; background-repeat: no-repeat;
+    opacity: 0;                       /* starts hidden; JS fades it to 1 on load */
+    transition: opacity 0.8s ease;    /* the ~0.8s background fade-in */
+  }
+  /* (#2) NEUTRAL black dim only — no color tint, so the background photo keeps
+     its ORIGINAL, true colors (just slightly darkened for text readability). */
+  #bgOverlay {
+    position: fixed; inset: 0; z-index: -1;
+    background: rgba(0, 0, 0, 0.22);
+    transition: background var(--theme-fade) ease-in-out; /* (#4) cross-fade veil */
+  }
+  /* Extra dim that fades IN when the timer starts (focus mode), so the timer
+     stands out, and fades OUT on pause/reset. */
+  #startDim {
+    position: fixed; inset: 0; z-index: -1;
+    background: #000; opacity: 0; pointer-events: none;
+    transition: opacity 0.9s var(--ease);
+  }
+  body.focus-mode #startDim { opacity: 0.25; } /* >>> dim amount (0.25 = 25%) <<< */
+
+  /* (#6) PAUSE LIGHTING: a soft radial glow that gently eases IN when paused
+     and fades out on resume. It sits above the background but below the page
+     content's interactions (pointer-events:none). */
+  #pauseGlow {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    /* a soft light centered a little above the middle (near the timer) */
+    background: radial-gradient(circle at 50% 42%,
+                rgba(255, 255, 255, 0.16),   /* >>> glow INTENSITY (raise/lower the 0.16) <<< */
+                rgba(255, 255, 255, 0) 60%);
+    opacity: 0;
+    transition: opacity 1.6s var(--ease-pause); /* eases in, then settles */
+  }
+  body.is-paused #pauseGlow { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { #pauseGlow { transition: opacity 0.3s ease; } }
+
+  /* The little bottom control bar to cycle background images */
+  .bg-controls {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 10px; z-index: 10;
+    background: rgba(0, 0, 0, 0.4); border-radius: 30px; padding: 6px 10px;
+    backdrop-filter: blur(6px);
+  }
+  .bg-controls button {
+    background: rgba(255, 255, 255, 0.15); color: #fff; border: none;
+    border-radius: 50%; width: 34px; height: 34px; font-size: 1rem;
+    cursor: pointer; transition: background 0.2s ease;
+  }
+  .bg-controls button:hover { background: rgba(255, 255, 255, 0.35); }
+  .bg-controls .bg-label {
+    color: #fff; font-size: 0.8rem; min-width: 84px; text-align: center;
+    opacity: 0.9;
+  }
+
+  /* =======================================================================
+     NEW FEATURE 2: MOUSE HALO
+     A blurred glowing circle that follows the cursor. pointer-events:none is
+     CRUCIAL — it lets clicks pass straight through to the buttons underneath.
+     ======================================================================= */
+  #halo {
+    position: fixed; top: 0; left: 0;
+    width: 300px; height: 300px;
+    border-radius: 50%;
+    pointer-events: none;      /* never blocks clicks */
+    z-index: 4;                /* above background, below modals */
+    /* soft radial light, fading to transparent at the edges */
+    background: radial-gradient(circle,
+                rgba(255, 255, 255, 0.30),
+                rgba(255, 255, 255, 0.10) 40%,
+                rgba(255, 255, 255, 0) 70%);
+    filter: blur(12px);
+    /* JS positions it with transform; this just centers it on the cursor */
+    transform: translate(-9999px, -9999px); /* hidden until first mouse move */
+    will-change: transform;
+    opacity: 1;
+    transition: opacity 0.4s ease; /* smooth hide/show when the timer runs */
+  }
+  /* Touch devices have no cursor, so hide the halo there */
+  @media (hover: none) { #halo { display: none; } }
+
+  /* The ambient sound player was removed — Spotify is now the sound source.
+     .volume-row is still used by the ALARM volume slider in the Alerts tab. */
+  .volume-row { display: flex; align-items: center; gap: 10px; margin-top: 18px; }
+  .volume-row span { font-size: 1.1rem; }
+  .volume-row input[type="range"] { flex: 1; accent-color: #fff; cursor: pointer; }
+
+  /* Use the display font for all the major headings, so it feels designed. */
+  .tasks-head h2, .modal h2 { font-family: var(--font-display); }
+
+  /* =======================================================================
+     NEW: TABBED SETTINGS PANEL
+     The modal now has a row of 4 tabs and 4 "pages". Only one page shows at
+     a time (controlled by the .active class, toggled in JS).
+     ======================================================================= */
+  .modal { max-width: 460px; }            /* a touch wider for the Reports tab */
+  .settings-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 16px;
+  }
+  .settings-head .x {
+    background: #f0f0f0; border: none; border-radius: 8px; width: 32px; height: 32px;
+    font-size: 1.1rem; cursor: pointer; color: #555;
+  }
+  .settings-head .x:hover { background: #e3e3e3; }
+
+  .settings-tabs {
+    display: flex; gap: 4px; background: #f3f3f3; padding: 4px;
+    border-radius: 10px; margin-bottom: 20px;
+  }
+  .settings-tabs button {
+    flex: 1; border: none; background: transparent; padding: 9px 4px;
+    border-radius: 7px; font-family: var(--font-settings); font-weight: 600;
+    font-size: 0.85rem; color: #777; cursor: pointer; transition: all 0.15s ease;
+  }
+  .settings-tabs button.active { background: #fff; color: #222; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+
+  .tab-page { display: none; }            /* hidden unless active */
+  /* (#5) Fade the tab content in when it becomes active (~0.3s). */
+  .tab-page.active { display: block; animation: tabFade 0.3s ease; }
+  @keyframes tabFade { from { opacity: 0; transform: translateY(4px); }
+                       to   { opacity: 1; transform: translateY(0); } }
+  @media (prefers-reduced-motion: reduce) { .tab-page.active { animation: none; } }
+
+  /* ---- ACCOUNT tab (login / sign-up UI, front-end only for now) --------- */
+  .auth-field { margin-bottom: 14px; }
+  .auth-field label {
+    display: block; font-size: 0.78rem; font-weight: 600; color: #888;
+    margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .auth-field input {
+    width: 100%; padding: 12px 14px; border: 1px solid #ddd; border-radius: 10px;
+    font-size: 1rem; font-family: var(--font-body); outline: none; transition: border 0.15s ease;
+  }
+  .auth-field input:focus { border-color: #888; }
+  .auth-primary {
+    width: 100%; padding: 13px; border: none; border-radius: 10px;
+    background: #222; color: #fff; font-weight: 600; font-size: 1rem;
+    font-family: var(--font-body); cursor: pointer; margin-top: 4px;
+  }
+  .auth-primary:hover { background: #000; }
+  .auth-divider {
+    display: flex; align-items: center; gap: 12px; color: #bbb;
+    font-size: 0.8rem; margin: 18px 0;
+  }
+  .auth-divider::before, .auth-divider::after {
+    content: ""; flex: 1; height: 1px; background: #eee;
+  }
+  .auth-google {
+    width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 10px;
+    background: #fff; color: #333; font-weight: 600; font-size: 0.95rem;
+    font-family: var(--font-body); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+  }
+  .auth-google:hover { background: #f7f7f7; }
+  .auth-google svg { width: 18px; height: 18px; }
+  .auth-switch { text-align: center; margin-top: 18px; font-size: 0.9rem; color: #777; }
+  .auth-switch a { color: #222; font-weight: 600; cursor: pointer; text-decoration: none; }
+
+  /* ---- ALERTS tab (alarm sound chooser) -------------------------------- */
+  .alert-option {
+    display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+    border: 2px solid #eee; border-radius: 10px; margin-bottom: 10px; cursor: pointer;
+    transition: border 0.15s ease, background 0.15s ease;
+  }
+  .alert-option:hover { background: #fafafa; }
+  .alert-option.selected { border-color: #222; background: #f7f7f7; }
+  .alert-option .radio {
+    width: 18px; height: 18px; border-radius: 50%; border: 2px solid #bbb;
+    flex-shrink: 0; display: grid; place-items: center;
+  }
+  .alert-option.selected .radio { border-color: #222; }
+  .alert-option.selected .radio::after {
+    content: ""; width: 9px; height: 9px; border-radius: 50%; background: #222;
+  }
+  .alert-option .name { flex: 1; font-weight: 600; color: #333; }
+
+  /* ---- REPORTS tab (stats + bar chart) --------------------------------- */
+  .report-section-title {
+    font-size: 0.78rem; text-transform: uppercase; letter-spacing: 1px;
+    color: #999; font-weight: 700; margin: 18px 0 10px;
+  }
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .stat-card { background: #f5f5f7; border-radius: 12px; padding: 14px 10px; text-align: center; }
+  .stat-value { font-family: var(--font-display); font-size: 1.5rem; font-weight: 700; color: #222; }
+  .stat-label { font-size: 0.72rem; color: #888; margin-top: 2px; }
+
+  /* Leaderboard rows */
+  .lb-row {
+    display: flex; align-items: center; gap: 10px;
+    background: #f5f5f7; border-radius: 12px; padding: 10px 14px;
+  }
+  .lb-row.lb-you { background: #e8f0fe; }
+  .lb-rank { font-family: var(--font-display); font-weight: 700; font-size: 1.05rem; width: 28px; text-align: center; color: #555; }
+  .lb-row:nth-child(1) .lb-rank { color: #d4a017; }
+  .lb-row:nth-child(2) .lb-rank { color: #8a8a8a; }
+  .lb-row:nth-child(3) .lb-rank { color: #b87333; }
+  .lb-name { flex: 1; font-weight: 600; font-size: 0.92rem; color: #222; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lb-stats { display: flex; gap: 12px; font-size: 0.78rem; color: #666; }
+  .lb-stats span { white-space: nowrap; }
+
+  /* The bar chart is just flexbox columns whose heights are set in JS. */
+  .chart {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 8px; height: 140px; margin-top: 6px;
+    padding: 10px 4px 0; border-bottom: 2px solid #eee;
+  }
+  .chart .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
+  .chart .bar {
+    width: 70%; max-width: 28px; background: var(--accent); border-radius: 6px 6px 0 0;
+    min-height: 3px; transition: height 0.4s ease; position: relative;
+  }
+  .chart .bar-val { font-size: 0.7rem; color: #999; font-weight: 600; }
+  .chart-labels { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; }
+  .chart-labels span { flex: 1; text-align: center; font-size: 0.72rem; color: #999; font-weight: 600; }
+
+  /* ---- Monthly calendar (Reports tab) ---------------------------------- */
+  .cal-weekdays, .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+  .cal-weekdays { margin-top: 6px; }
+  .cal-weekdays span { text-align: center; font-size: 0.62rem; color: #aaa; font-weight: 700; }
+  .calendar { margin-top: 5px; }
+  /* Cells are now tall enough for the day number + that day's time below it. */
+  .cal-day {
+    min-height: 46px; padding: 5px 2px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 1px; border-radius: 7px; background: #f1f1f3; color: #aaa;
+  }
+  .cal-num { font-size: 0.72rem; font-weight: 600; line-height: 1; }
+  .cal-time { font-size: 0.55rem; line-height: 1; opacity: 0.85; }
+  .cal-day.active { background: var(--accent); color: #fff; }       /* studied */
+  .cal-day.active .cal-num { font-weight: 700; }
+  .cal-day.empty { background: transparent; }                        /* leading blanks */
+  .cal-day.today { outline: 2px solid #333; outline-offset: -2px; }
+
+  /* =======================================================================
+     INTRO / SPLASH ANIMATION  (rebuilt: transitions + class toggles only)
+     How it works reliably:
+       - The app starts HIDDEN: <body class="intro-playing"> hides the app in
+         CSS, so it can never flash before the intro.
+       - The overlay (#splash) is visible from the first paint.
+       - JS toggles .show / .hide classes; CSS transitions do all the fading.
+         No @keyframes, no overlapping timers fighting each other.
+     ======================================================================= */
+
+  /* While the intro plays, hide the app entirely (only background + splash
+     show). When the class is removed at the end, these fade back in. */
+  header, main, .progress-track, .user-bar, .bg-controls, .spotify {
+    transition: opacity 0.6s ease;
+  }
+  body.intro-playing header,
+  body.intro-playing main,
+  body.intro-playing .progress-track,
+  body.intro-playing .user-bar,
+  body.intro-playing .bg-controls,
+  body.intro-playing .spotify {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* #splash covers the WHOLE screen with a FULLY OPAQUE color so nothing behind
+     (like the logo) can peek through during the intro. It fades out at the end. */
+  #splash {
+    position: fixed; inset: 0; z-index: 9999;
+    display: flex; align-items: center; justify-content: center;
+    background: #14171f;                 /* solid, opaque cover */
+    opacity: 1;
+    transition: opacity 0.4s ease;       /* exit fade (rescaled for 2.5s intro) */
+  }
+  #splash.hide { opacity: 0; }                    /* fade the overlay out */
+  #splash.gone { display: none; pointer-events: none; } /* fully removed */
+
+  /* The centered panel — now LARGER and fully opaque. Starts slightly small +
+     transparent; .show fades+scales it in, .hide fades it out. */
+  .intro-panel {
+    width: 86%; height: 78%;
+    max-width: 680px; max-height: 660px;
+    border-radius: 24px;
+    background: #1e232f;                  /* opaque panel surface */
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 26px;
+    opacity: 0; transform: scale(0.95);
+    /* Entrance, rescaled for the 2.5s intro. */
+    transition: opacity 0.65s ease, transform 0.65s ease;
+  }
+  .intro-panel.show { opacity: 1; transform: scale(1); }
+  .intro-panel.hide { opacity: 0; transform: scale(0.97); }
+
+  /* Star: gentle fade + scale in (driven by the .show class). */
+  .splash-star {
+    opacity: 0; transform: scale(0.85);
+    transition: opacity 0.65s ease, transform 0.65s ease;
+  }
+  .splash-star.show { opacity: 1; transform: scale(1); }
+  /* The SVG slowly rotates the WHOLE time the splash is on screen (~2.4s), so
+     there's continuous, gentle motion across the full 2.5s intro. */
+  .splash-star svg {
+    display: block;
+    animation: introSpin 2.4s ease-in-out forwards;
+  }
+  @keyframes introSpin { from { transform: rotate(0deg); }
+                         to   { transform: rotate(360deg); } }
+
+  /* "Pomora" wordmark: simple fade in (driven by the .show class). */
+  .splash-name {
+    opacity: 0;
+    font-family: var(--font-display);
+    font-size: 1.7rem; font-weight: 600; letter-spacing: 2px;
+    color: #FFFFFF;  /* white wordmark */
+    transition: opacity 0.6s ease;
+  }
+  .splash-name.show { opacity: 1; }
+
+  /* Reduced motion: no scaling or spinning, just instant show + quick fade. */
+  @media (prefers-reduced-motion: reduce) {
+    .intro-panel, .splash-star { transition: opacity 0.3s ease; transform: none; }
+    .intro-panel.show, .splash-star.show { transform: none; }
+    .splash-star svg { animation: none; }
+  }
+
+  /* =======================================================================
+     FOCUS MODE — added to <body> while the timer is RUNNING. Everything
+     except the timer, the header/logo, and the Spotify player smoothly
+     collapses/fades away. Removing the class brings them back.
+     ======================================================================= */
+  /* (PAUSE FIX) The pause animation is now PURE opacity + transform:translateY
+     — NO max-height collapse. The old max-height:0 → 2000px was the real cause
+     of the abruptness: an element only renders as tall as its content, so a
+     2000px max-height "arrives" at the real height in a small fraction of the
+     duration, snapping the layout open while opacity was still fading. With
+     just opacity + transform (which animate their FULL length), every paused
+     element glides in sync.
+     >>> ONE PAUSE DURATION lives in --pause-dur (in :root). Change it there. <<< */
+  .tasks, .bg-controls, .user-bar {
+    transition: opacity var(--pause-dur) var(--ease-pause),
+                transform var(--pause-dur) var(--ease-pause);
+  }
+  /* In focus mode these fade + slide out together. They keep their layout space
+     (no collapse), but they sit below the timer fold so it isn't noticeable. */
+  body.focus-mode .tasks {
+    opacity: 0; transform: translateY(14px); pointer-events: none;
+  }
+  body.focus-mode .bg-controls {
+    opacity: 0; transform: translateY(14px); pointer-events: none;
+  }
+  body.focus-mode .user-bar {
+    opacity: 0; transform: translateY(-16px); pointer-events: none; /* XP bar out */
+  }
+
+  /* (#1) UNPAUSE/START: when focus mode is ADDED, use the long --unpause-dur
+     (4.5s) glide with the gentle --ease-pause curve so resuming feels very
+     smooth. (Leaving focus mode on Pause uses the shorter base duration above.)
+     Change the length via --unpause-dur in :root. */
+  body.focus-mode .tasks,
+  body.focus-mode .bg-controls,
+  body.focus-mode .user-bar,
+  body.focus-mode .card, body.focus-mode .hero {
+    transition-duration: var(--unpause-dur);
+  }
+  /* (#2) But the XP bar exits FAST on Start — overrides the line above for it.
+     (Pause still uses the normal base duration, so it eases back in calmly.) */
+  body.focus-mode .user-bar { transition-duration: var(--xp-hide-dur); }
+
+  /* Accessibility: users who prefer reduced motion get quick fades only (no
+     slide/scale, short duration) for both Start and Pause. */
+  @media (prefers-reduced-motion: reduce) {
+    .tasks, .info, .bg-controls, .user-bar,
+    .card, .spotify, .hero {
+      transition: opacity 0.2s ease !important;
+    }
+    body.focus-mode .tasks, body.focus-mode .info,
+    body.focus-mode .bg-controls,
+    body.focus-mode .user-bar,
+    body.focus-mode .work-row .spotify, body.focus-mode .card {
+      transform: none;
+    }
+  }
+
+  /* ---- Footer ---------------------------------------------------------- */
+  .site-footer {
+    width: 100%; max-width: 720px; margin-top: 60px;
+    padding-top: 30px; border-top: 1px solid rgba(255, 255, 255, 0.15);
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+    text-align: center; color: var(--text-dim);
+    transition: opacity 0.5s ease-in-out;
+  }
+  .footer-links { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
+  .footer-links a {
+    color: var(--text); font-weight: 600; text-decoration: none;
+    font-size: 0.9rem; opacity: 0.85; transition: opacity 0.2s ease;
+  }
+  .footer-links a:hover { opacity: 1; }
+  .footer-copy { font-size: 0.8rem; opacity: 0.7; }
+  /* Hide the footer in focus mode so the running timer stays distraction-free. */
+  body.focus-mode .site-footer { opacity: 0; pointer-events: none; }
+
+  /* =======================================================================
+     SCROLL-IN REVEAL: any element with class "reveal" starts slightly lower
+     and transparent, then eases up to full opacity when it scrolls into view
+     (JS adds the "in-view" class via IntersectionObserver).
+
+     >>> ADJUST THE ANIMATION HERE <<<
+       - translateY value below = how far it SLIDES up (distance)
+       - the duration uses --pause-dur so it matches the pause feel. */
+  .reveal {
+    opacity: 0;
+    transform: translateY(26px);
+    /* Use the SAME pause duration + curve so the scroll-in of the Spotify
+       player and info sections feels consistent with the pause animation. */
+    transition: opacity var(--pause-dur) var(--ease-pause),
+                transform var(--pause-dur) var(--ease-pause);
+  }
+  .reveal.in-view {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  /* Reduced motion: show sections immediately, no slide/fade. */
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; transition: none; }
+  }
+
+  /* ---- "Built for Good" highlighted mission section -------------------- */
+  .mission-highlight {
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 40px 32px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .mission-highlight::before {
+    content: "";
+    position: absolute;
+    top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background: radial-gradient(circle at 30% 40%, rgba(99,179,237,0.12) 0%, transparent 60%),
+                radial-gradient(circle at 70% 60%, rgba(154,130,243,0.10) 0%, transparent 50%);
+    pointer-events: none;
+  }
+  .mission-highlight h2 {
+    color: #fff;
+    font-size: 1.6rem;
+    margin-bottom: 14px;
+    position: relative;
+  }
+  .mission-highlight p {
+    color: rgba(255,255,255,0.78);
+    font-size: 1.05rem;
+    line-height: 1.7;
+    max-width: 520px;
+    margin: 0 auto;
+    position: relative;
+  }
+
+  /* (#2) Custom confirm popup (reuses .overlay/.modal). z-index above the notes
+     view (60) so it shows on top when deleting a note from the gallery. */
+  #confirmOverlay { z-index: 200; }
+  .confirm-box { max-width: 320px; text-align: center; }
+  .confirm-box p { font-size: 1.05rem; font-weight: 600; color: #222; margin-bottom: 18px; }
+  .confirm-actions { display: flex; gap: 10px; justify-content: center; }
+  .confirm-actions button {
+    flex: 1; border: none; border-radius: 9px; padding: 10px 16px;
+    font-weight: 700; cursor: pointer; font-family: var(--font-settings);
+  }
+  .confirm-no { background: #eee; color: #444; }
+  .confirm-no:hover { background: #e2e2e2; }
+  .confirm-yes { background: #e2574c; color: #fff; }
+  .confirm-yes:hover { background: #d23b30; }
+
+  /* =======================================================================
+     NOTES VIEW (in-app overlay). UI colors come from the --nv-* variables
+     below. The "dark" class only swaps these UI variables — it does NOT touch
+     the note text color or the chosen paper background (see #noteContent and
+     the inline sheet background set in JS).
+     ======================================================================= */
+  #notesView {
+    position: fixed; inset: 0; z-index: 60; display: none; overflow-y: auto;
+    font-family: var(--font-settings);
+    /* Light defaults: */
+    --nv-bg: #f4f5f8; --nv-surface: #ffffff; --nv-text: #1f2330;
+    --nv-dim: #6b7180; --nv-border: #e3e5ea; --nv-accent: #5b6cff;
+    --nv-rule: rgba(70, 90, 120, 0.28);   /* lined-paper line color (light) */
+    background: var(--nv-bg); color: var(--nv-text);
+    /* (#2) Smooth fade when toggling dark/light. */
+    transition: background 0.4s ease, color 0.4s ease;
+  }
+  #notesView.open { display: block; }
+  /* Dark mode: plain dark surfaces + light text everywhere in the notes area. */
+  #notesView.dark {
+    --nv-bg: #1b1e2a; --nv-surface: #252938; --nv-text: #eef0f6;
+    --nv-dim: #a2a8b8; --nv-border: rgba(255, 255, 255, 0.12);
+    --nv-rule: rgba(255, 255, 255, 0.14); /* lined-paper line color (dark) */
+  }
+  /* Fade the surfaces/borders too so the whole area eases between modes.
+     Scoped under #notesView so it can't affect the home page's timer card. */
+  #notesView .notes-topbar, #notesView .sheet, #notesView #noteContent,
+  #notesView .card, #notesView .toolbar {
+    transition: background 0.4s ease, color 0.4s ease, border-color 0.4s ease;
+  }
+  /* Respect reduced motion: switch instantly, no fade. */
+  @media (prefers-reduced-motion: reduce) {
+    #notesView, #notesView .notes-topbar, #notesView .sheet, #notesView #noteContent,
+    #notesView .card, #notesView .toolbar { transition: none; }
+  }
+
+  .notes-topbar {
+    position: sticky; top: 0; z-index: 2;
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 22px; background: var(--nv-bg);
+    border-bottom: 1px solid var(--nv-border);
+  }
+  .running-badge {
+    display: none; background: #e2574c; color: #fff; font-weight: 700;
+    font-size: 0.75rem; padding: 6px 12px; border-radius: 20px;
+  }
+  .running-badge.show { display: inline-block; }
+
+  .nv-screen { display: none; max-width: 1000px; margin: 0 auto; padding: 28px 24px; }
+  .nv-screen.active { display: block; }
+
+  .link-btn {
+    background: none; border: none; color: var(--nv-dim); cursor: pointer;
+    font-weight: 600; font-size: 0.9rem; font-family: var(--font-settings);
+  }
+  .link-btn:hover { color: var(--nv-text); }
+
+  /* Gallery */
+  .lib-head h1 { font-family: var(--font-display); font-size: 1.8rem; margin-bottom: 20px; }
+  .gallery { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+  .card {
+    position: relative; background: var(--nv-surface); border: 1px solid var(--nv-border);
+    border-radius: 14px; padding: 18px; min-height: 130px; cursor: pointer;
+    display: flex; flex-direction: column; transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .card:hover { transform: translateY(-3px); box-shadow: 0 12px 28px rgba(0,0,0,0.12); }
+  .card .card-name { font-family: var(--font-display); font-weight: 600; font-size: 1.05rem; margin-bottom: 6px; word-break: break-word; }
+  .card .card-preview { color: var(--nv-dim); font-size: 0.85rem; flex: 1; overflow: hidden; }
+  .card .card-date { color: var(--nv-dim); font-size: 0.72rem; margin-top: 10px; }
+  .card .card-del {
+    position: absolute; top: 8px; right: 8px; width: 26px; height: 26px;
+    border: none; border-radius: 7px; background: rgba(0,0,0,0.06); color: var(--nv-dim);
+    cursor: pointer; font-size: 0.9rem; line-height: 1; opacity: 0; transition: opacity 0.15s ease;
+  }
+  .card:hover .card-del { opacity: 1; }
+  .card .card-del:hover { background: #e2574c; color: #fff; }
+  .card.new-card { align-items: center; justify-content: center; color: var(--nv-accent); border-style: dashed; border-width: 2px; font-weight: 700; }
+  .card.new-card .plus { font-size: 2.4rem; line-height: 1; margin-bottom: 4px; }
+
+  /* Editor */
+  .editor-top { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  /* Both the typed-note and drawing NAME inputs use the app's display font
+     (Space Grotesk) instead of the default system font (#4). */
+  #noteName {
+    flex: 1; min-width: 140px; border: none; background: transparent; color: var(--nv-text);
+    font-family: var(--font-display); font-size: 1.4rem; font-weight: 600; outline: none;
+    border-bottom: 2px solid transparent; padding: 4px 2px;
+  }
+  #noteName:focus { border-bottom-color: var(--nv-accent); }
+  .primary { background: var(--nv-accent); color: #fff; border: none; border-radius: 9px; padding: 9px 20px; font-weight: 700; cursor: pointer; font-family: var(--font-settings); }
+  .primary:hover { filter: brightness(1.08); }
+  .saved-tag { color: var(--nv-dim); font-size: 0.8rem; }
+  .toolbar {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    background: var(--nv-surface); border: 1px solid var(--nv-border);
+    border-radius: 10px; padding: 10px 12px; margin-bottom: 14px;
+  }
+  .toolbar select, .toolbar button {
+    border: 1px solid var(--nv-border); background: var(--nv-bg); color: var(--nv-text);
+    border-radius: 7px; padding: 7px 10px; font-size: 0.85rem; cursor: pointer; font-family: var(--font-settings);
+  }
+  .toolbar button.active { background: var(--nv-accent); color: #fff; border-color: var(--nv-accent); }
+  .toolbar .tool-bold { font-weight: 800; width: 38px; }
+
+  /* Plain writing surface — white in light mode, dark in dark mode. No more
+     background image/pattern; the text color follows the theme so it stays
+     readable in both modes. */
+  .sheet { border: 1px solid var(--nv-border); border-radius: 12px; overflow: hidden; background: var(--nv-surface); }
+  /* LINED PAPER (#2): the ruled lines are a repeating gradient drawn ON THE
+     TEXTAREA ITSELF (not the sheet), so they appear behind the text and the
+     text sits on them. background-attachment:local makes the lines scroll WITH
+     the text. The base is transparent so the sheet surface shows through;
+     --nv-rule is the line color (theme-aware). line-height MUST match the line
+     spacing (31px) so each row of text lands on a line. */
+  #noteContent {
+    width: 100%; min-height: 62vh; resize: vertical; border: none; outline: none;
+    padding: 7px 18px 18px; color: var(--nv-text);
+    font-size: 18px; line-height: 31px; font-family: var(--font-body);
+    background-color: transparent;
+    background-image: repeating-linear-gradient(to bottom,
+      transparent 0, transparent 30px, var(--nv-rule) 30px, var(--nv-rule) 31px);
+    background-attachment: local;
+  }
+
+  /* FULLSCREEN: we fullscreen the WHOLE #notesView so the top bar (Back to
+     timer + Fullscreen + theme) stays inside it and clickable.
+     (a) real Fullscreen API → #notesView becomes the :fullscreen element;
+     (b) CSS fallback → add class "fs-fallback" (it's already a fixed overlay,
+         so we just lift its z-index and ensure it scrolls). */
+  #notesView:fullscreen { background: var(--nv-bg); overflow-y: auto; }
+  #notesView.fs-fallback { z-index: 9999; overflow-y: auto; }
+  #notesView:fullscreen #noteContent,
+  #notesView.fs-fallback #noteContent { min-height: 70vh; }
+
+  @media (max-width: 480px) {
+    .nv-screen { padding: 20px 16px; }
+  }
+
+  /* ---- Phone layout ----------------------------------------------------
+     Stack the work row so tasks and Spotify sit one above the other and
+     never overlap on small screens. */
+  @media (max-width: 600px) {
+    .work-row { flex-direction: column; align-items: center; max-width: 480px; }
+    .work-row .spotify { flex: none; width: 100%; }
+    .bg-controls { bottom: 10px; }
+  }
+
+  /* ---- Small-screen tweaks ---------------------------------------------- */
+  @media (max-width: 420px) {
+    .mode-tab { padding: 8px 10px; font-size: 0.8rem; }
+    .start-btn { width: 170px; font-size: 1.15rem; }
+    .settings-tabs button { font-size: 0.78rem; padding: 8px 2px; }
+    .stat-value { font-size: 1.2rem; }
+    .info { padding: 24px 20px; }
+    .info h2 { font-size: 1.35rem; }
+  }
+</style>
+
+<!-- Firebase SDK (compat builds for plain <script> usage) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+</head>
+
+<body class="intro-playing">
+  <!-- "intro-playing" hides the app via CSS until the intro finishes, so the
+       app never flashes before the splash. JS removes it when the intro ends. -->
+  <!-- ===================================================================
+       INTRO / SPLASH OVERLAY
+       Covers the whole screen on load, then fades out (handled in JS) to
+       reveal the Pomora app underneath. The CSS animations start on their
+       own as soon as the page renders.
+       =================================================================== -->
+  <div id="splash">
+    <!-- The centered panel. #splash centers it via flexbox; the panel sizes
+         itself to ~70% of the viewport. -->
+    <div class="intro-panel">
+      <!-- .splash-star handles fade-in + scale; the <svg> inside handles the
+           rotation. Separate elements so the two transforms don't conflict. -->
+      <div class="splash-star">
+        <svg viewBox="0 0 100 100" width="96" height="96"
+             xmlns="http://www.w3.org/2000/svg" aria-label="Pomora star">
+          <polygon points="50,5 63,27.5 89,27.5 76,50 89,72.5 63,72.5 50,95 37,72.5 11,72.5 24,50 11,27.5 37,27.5"
+                   fill="#FFFFFF" />
+        </svg>
+      </div>
+      <div class="splash-name">Pomora</div>
+    </div>
+  </div>
+
+  <!-- Background image + dark veil (behind everything). Filled in by JS. -->
+  <div id="bgLayer"></div>
+  <div id="bgOverlay"></div>
+  <!-- Extra dim layer that fades in while the timer runs (see #startDim CSS). -->
+  <div id="startDim"></div>
+  <!-- Soft "lighting" glow that eases in while PAUSED (see #pauseGlow CSS). -->
+  <div id="pauseGlow"></div>
+
+  <!-- The glowing circle that follows the mouse. -->
+  <div id="halo"></div>
+
+  <!-- ===================================================================
+       HEADER: brand + theme/settings buttons
+       =================================================================== -->
+  <header>
+    <div class="brand">
+      <!-- Pomora logo: star uses currentColor so it follows the wordmark color
+           (white in dark mode, dark in light mode). -->
+      <svg class="logo" viewBox="0 0 100 100" width="26" height="26"
+           xmlns="http://www.w3.org/2000/svg" aria-label="Pomora star">
+        <polygon points="50,5 63,27.5 89,27.5 76,50 89,72.5 63,72.5 50,95 37,72.5 11,72.5 24,50 11,27.5 37,27.5"
+                 fill="currentColor" />
+      </svg>
+      <span class="brand-name">Pomora</span>
+    </div>
+    <div class="top-buttons">
+      <!-- Notes is an IN-APP view (opens an overlay) so the timer keeps running. -->
+      <button class="icon-btn" id="notesBtn">📝 Notes</button>
+      <button class="icon-btn" id="settingsBtn">⚙ Settings</button>
+    </div>
+  </header>
+
+  <!-- Progress line below the header. The fill shrinks as the timer counts
+       down (driven by JS). It's the divider line + the progress bar in one. -->
+  <div class="progress-track">
+    <div class="progress-fill" id="progressFill"></div>
+  </div>
+
+  <!-- Top area: a greeting with the user's name + the monthly XP bar. -->
+  <div class="user-bar">
+    <div class="greeting">Hi, <span id="userName">friend</span> 👋</div>
+    <div class="xp-wrap">
+      <div class="xp-info">
+        <span id="xpLevel">Lv 1</span>
+        <span id="xpText">0 / 100 XP</span>
+      </div>
+      <div class="xp-track"><div class="xp-fill" id="xpFill"></div></div>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       MAIN TIMER CARD
+       =================================================================== -->
+  <main>
+    <!-- HERO: fills the first screen so the timer is what you see on load.
+         The scroll indicator hints there's more content below. -->
+    <section class="hero">
+      <!-- id="timerSection" is the smooth-scroll target (center on start/pause). -->
+      <div class="card" id="timerSection">
+        <!-- Mode tabs. data-mode is read by JS to know which mode to switch to -->
+        <div class="modes">
+          <button class="mode-tab active" data-mode="focus">Focus</button>
+          <button class="mode-tab" data-mode="short">Short Break</button>
+          <button class="mode-tab" data-mode="long">Long Break</button>
+        </div>
+
+        <!-- The big countdown -->
+        <div class="time" id="time">25:00</div>
+
+        <!-- Controls -->
+        <div>
+          <button class="start-btn" id="startBtn">Start</button>
+          <button class="reset-btn" id="resetBtn" title="Reset">↻</button>
+        </div>
+
+        <p class="session-count">
+          Completed focus sessions: <strong id="sessionCount">0</strong>
+        </p>
+      </div>
+    </section>
+
+    <!-- =================================================================
+         WORK ROW: task list + Spotify player side by side (normal flow)
+         ================================================================= -->
+    <div class="work-row">
+    <section class="tasks">
+      <div class="tasks-head">
+        <h2>Tasks</h2>
+        <span class="finish-time" id="finishTime">Finish: --:--</span>
+      </div>
+
+      <ul id="taskList"><!-- tasks rendered here by JS --></ul>
+
+      <button class="add-task-btn" id="addTaskBtn">+ Add Task</button>
+
+      <!-- Hidden until "Add Task" is clicked -->
+      <div class="add-form" id="addForm">
+        <input type="text" id="taskNameInput" placeholder="What are you working on?" />
+        <div class="row">
+          <span style="margin-right:auto;color:#888;">Est. pomodoros:</span>
+          <input type="number" id="taskEstInput" min="1" value="1" />
+          <button class="btn-cancel" id="cancelTaskBtn">Cancel</button>
+          <button class="btn-save" id="saveTaskBtn">Save</button>
+        </div>
+      </div>
+    </section>
+
+      <!-- =================================================================
+           SPOTIFY PLAYER — now BESIDE the tasks, in normal page flow.
+           >>> PASTE YOUR OWN PLAYLIST EMBED URL in the src="" below. <<<
+           Spotify -> your playlist -> Share -> "Embed playlist" -> copy the
+           src URL (looks like https://open.spotify.com/embed/playlist/XXXX...).
+           ================================================================= -->
+      <!-- class="reveal" makes the player fade+slide in when scrolled into view,
+           same as the lower page sections (#3). -->
+      <div class="spotify reveal">
+        <!-- The src is set by JS from the current theme's "playlist" URL. -->
+        <iframe
+          id="spotifyFrame"
+          title="Spotify player"
+          src="https://open.spotify.com/embed/playlist/37i9dQZF1DWWQRwui0ExPn?utm_source=generator"
+          width="100%" height="352" frameborder="0"
+          allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+          loading="lazy"></iframe>
+      </div>
+    </div><!-- /.work-row -->
+
+    <!-- The ambient sound player was removed (Spotify is now the sound
+         source). We keep just the hidden ALARM audio element below. -->
+    <audio id="alertPlayer"></audio>
+
+    <!-- =================================================================
+         SCROLLABLE CONTENT BELOW THE TIMER
+         Edit the headings and paragraph text freely — it's just placeholder
+         copy. These sit inside <main> but are wider via their own max-width.
+         ================================================================= -->
+    <section class="info reveal">
+      <h2>Why the Pomodoro Technique Works</h2>
+      <p>
+        The Pomodoro Technique breaks your work into focused 25-minute
+        intervals separated by short breaks. Working in short, defined bursts
+        makes big tasks feel approachable and gives your brain a clear finish
+        line to aim for.
+      </p>
+      <p>
+        The regular breaks matter just as much as the focus. Stepping away for
+        a few minutes lets your mind rest, reduces burnout, and keeps your
+        concentration fresh across a long day. After four focus sessions, a
+        longer break helps you fully recharge before the next round.
+      </p>
+      <p>
+        Over time, counting completed sessions turns productivity into
+        something you can actually see — a simple, motivating measure of the
+        focused work you put in each day.
+      </p>
+    </section>
+
+    <section class="info reveal">
+      <h2>Who We Are</h2>
+      <p>
+        Pomora is a calm, focused space for getting meaningful work done. We
+        built it because we wanted a timer that felt less like a stopwatch and
+        more like a quiet room — soft visuals, gentle sound, and just enough
+        structure to keep you moving.
+      </p>
+      <p>
+        Our goal is simple: help you spend less time fighting distraction and
+        more time in flow. Whether you're studying, writing, coding, or
+        working through a long to-do list, Pomora is designed to fade into the
+        background and let the work take center stage.
+      </p>
+    </section>
+
+    <section class="info reveal mission-highlight">
+      <h2>Built for Good</h2>
+      <p>
+        Pomora is more than a productivity tool. As we grow, a share of our
+        revenue goes toward charitable causes — because we believe the time
+        you invest in your work can also help make the world a little better.
+      </p>
+    </section>
+
+    <!-- =================================================================
+         FOOTER — small links + copyright.
+         >>> EDIT THE LINKS (href="#") below — replace with your real URLs. <<<
+         ================================================================= -->
+    <footer class="site-footer reveal">
+      <div class="footer-links">
+        <a href="terms.html">Terms and Conditions</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="contact.html">Contact</a>
+      </div>
+      <div class="footer-copy">© 2026 Pomora. All rights reserved.</div>
+    </footer>
+  </main>
+
+  <!-- Background image cycler + name label (the single background-name label) -->
+  <div class="bg-controls">
+    <button id="prevBgBtn" title="Previous background">‹</button>
+    <span class="bg-label" id="bgLabel">Background 1</span>
+    <button id="nextBgBtn" title="Next background">›</button>
+  </div>
+
+  <!-- =====================================================================
+       CHARITY VOTING PANEL — shown once to new users.
+       *** PLACEHOLDER ONLY: this is front-end UI. It does NOT record real
+       votes yet (no backend). Wire it to real accounts/voting later. ***
+       The cause list + "show once" flag are set in the JS (see CAUSES /
+       SHOW_CHARITY_ONCE).
+       ===================================================================== -->
+
+  <!-- (#2) Custom confirm popup — replaces the browser's confirm() dialog. -->
+  <div class="overlay" id="confirmOverlay">
+    <div class="modal confirm-box">
+      <p id="confirmMsg">Are you sure?</p>
+      <div class="confirm-actions">
+        <button class="confirm-no" id="confirmNo">No</button>
+        <button class="confirm-yes" id="confirmYes">Yes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       NOTES VIEW (full-screen IN-APP overlay — the timer keeps running
+       behind it because it's the same page; opening/closing never touches
+       the timer). Two screens: library + typed-note editor.
+       =================================================================== -->
+  <div id="notesView">
+    <div class="notes-topbar">
+      <button class="link-btn" id="notesClose">← Back to timer</button>
+      <!-- Shows only while a focus session is running (toggled by JS). -->
+      <span class="running-badge" id="runningBadge">⏳ Pomodoro is still running</span>
+      <span style="flex:1"></span>
+    </div>
+
+    <!-- 1) LIBRARY / GALLERY -->
+    <section class="nv-screen" id="nv-library">
+      <div class="lib-head"><h1>Your notes</h1></div>
+      <div class="gallery" id="gallery"><!-- cards built by JS --></div>
+    </section>
+
+    <!-- 3) EDITOR (Type) -->
+    <section class="nv-screen" id="nv-editor">
+      <div class="editor-top">
+        <button class="link-btn" id="editorBack">← Library</button>
+        <input id="noteName" placeholder="Untitled" />
+        <span class="saved-tag" id="savedTag"></span>
+        <button class="primary" id="saveNote">Save</button>
+      </div>
+      <div class="toolbar">
+        <select id="fontFamily" title="Font">
+          <option value='"Inter", sans-serif'>Inter</option>
+          <option value='"Space Grotesk", sans-serif'>Space Grotesk</option>
+          <option value='"Poppins", sans-serif'>Poppins</option>
+          <option value='"Lora", serif'>Lora</option>
+          <option value='"Roboto Mono", monospace'>Roboto Mono</option>
+        </select>
+        <select id="fontSize" title="Size">
+          <option value="16px">16</option>
+          <option value="18px" selected>18</option>
+          <option value="20px">20</option>
+          <option value="24px">24</option>
+          <option value="28px">28</option>
+        </select>
+        <button class="tool-bold" id="boldToggle" title="Bold">B</button>
+        <!-- Fullscreen toggle for the writing area -->
+        <button id="fullscreenBtn" title="Fullscreen">⛶ Fullscreen</button>
+        <!-- Light/dark for the whole notes area. -->
+        <button id="uiThemeToggle" title="Light/Dark">🌙 Dark</button>
+      </div>
+      <!-- Lined writing surface (ruled lines render on the textarea below). -->
+      <div class="sheet" id="noteSheet">
+        <textarea id="noteContent" placeholder="Start typing…"></textarea>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===================================================================
+       SETTINGS MODAL (hidden until opened)
+       =================================================================== -->
+  <div class="overlay" id="settingsOverlay">
+    <div class="modal">
+      <div class="settings-head">
+        <h2>Settings</h2>
+        <button class="x" id="closeSettingsX" title="Close">✕</button>
+      </div>
+
+      <!-- The 4 tab buttons. data-tab matches the id of the page it shows. -->
+      <div class="settings-tabs">
+        <button class="active" data-tab="timer">Timer</button>
+        <button data-tab="account">Account</button>
+        <button data-tab="alerts">Alerts</button>
+        <button data-tab="reports">Reports</button>
+        <button data-tab="leaderboard">Ranking</button>
+        <button data-tab="integrations">Sync</button>
+      </div>
+
+      <!-- ============ TAB 1: TIMER ============ -->
+      <div class="tab-page active" id="tab-timer">
+        <h3>Your name</h3>
+        <div class="setting-row">
+          <label for="userNameInput">Display name</label>
+          <input type="text" id="userNameInput" placeholder="friend" maxlength="24"
+                 style="width:150px; padding:8px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem;" />
+        </div>
+
+        <h3>Duration (minutes)</h3>
+        <div class="setting-row">
+          <label for="focusDur">Focus</label>
+          <input type="number" id="focusDur" min="1" />
+        </div>
+        <div class="setting-row">
+          <label for="shortDur">Short Break</label>
+          <input type="number" id="shortDur" min="1" />
+        </div>
+        <div class="setting-row">
+          <label for="longDur">Long Break</label>
+          <input type="number" id="longDur" min="1" />
+        </div>
+        <div class="setting-row">
+          <label for="longInterval">Long break after every</label>
+          <input type="number" id="longInterval" min="1" />
+        </div>
+
+        <h3>Auto-start</h3>
+        <div class="setting-row">
+          <label>Auto-start breaks</label>
+          <label class="switch">
+            <input type="checkbox" id="autoStartBreaks" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="setting-row">
+          <label>Auto-start focus sessions</label>
+          <label class="switch">
+            <input type="checkbox" id="autoStartPomodoros" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <h3>Appearance</h3>
+        <div class="setting-row">
+          <!-- (#3) Global dark/light toggle. Checked = Light mode. -->
+          <label>Light mode</label>
+          <label class="switch">
+            <input type="checkbox" id="appLightToggle" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <h3>Theme</h3>
+        <div class="theme-swatches" id="themeSwatches"><!-- swatches built by JS --></div>
+
+        <h3>Home background image</h3>
+        <div class="setting-row">
+          <label>Upload your own</label>
+          <div class="color-row">
+            <button class="mini-btn" id="homeBgUpload">Choose image</button>
+            <button class="mini-btn" id="homeBgReset">Reset</button>
+          </div>
+        </div>
+        <input type="file" id="homeBgFile" accept="image/*" style="display:none" />
+
+        <h3>Countdown line color</h3>
+        <div class="setting-row">
+          <label>Progress line</label>
+          <div class="color-row">
+            <input type="color" id="progressColor" />
+            <!-- Reset to follow the theme's accent color. -->
+            <button class="mini-btn" id="progressColorReset">Theme</button>
+          </div>
+        </div>
+
+        <h3>Fonts</h3>
+        <!-- Font dropdowns (one per element) are built by JS into here. -->
+        <div id="fontPickers"></div>
+      </div>
+
+      <!-- ============ TAB 2: ACCOUNT (UI only) ============ -->
+      <div class="tab-page" id="tab-account">
+        <div class="auth-field">
+          <label for="authEmail">Email</label>
+          <input type="email" id="authEmail" placeholder="you@example.com" />
+        </div>
+        <div class="auth-field">
+          <label for="authPassword">Password</label>
+          <input type="password" id="authPassword" placeholder="••••••••" />
+        </div>
+        <!-- id="authSubmit" text flips between Sign in / Create account -->
+        <button class="auth-primary" id="authSubmit">Sign in</button>
+
+        <div class="auth-divider">or</div>
+
+        <!-- Google "G" logo drawn inline as SVG so we need no image file. -->
+        <button class="auth-google" id="googleBtn">
+          <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+            <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.4 30.1 0 24 0 14.6 0 6.4 5.4 2.5 13.3l7.8 6c1.9-5.6 7.1-9.8 13.7-9.8z"/>
+            <path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.5 3-2.2 5.5-4.7 7.2l7.3 5.7c4.3-4 6.9-9.8 6.9-17.4z"/>
+            <path fill="#FBBC05" d="M10.3 28.7c-.5-1.4-.7-2.9-.7-4.7s.3-3.3.7-4.7l-7.8-6C.9 16.4 0 20.1 0 24s.9 7.6 2.5 10.7l7.8-6z"/>
+            <path fill="#34A853" d="M24 48c6.1 0 11.3-2 15-5.5l-7.3-5.7c-2 1.4-4.7 2.3-7.7 2.3-6.6 0-11.8-4.2-13.7-9.8l-7.8 6C6.4 42.6 14.6 48 24 48z"/>
+          </svg>
+          Sign in with Google
+        </button>
+
+        <p class="auth-switch">
+          <span id="authSwitchText">New here?</span>
+          <a id="authToggle">Create an account</a>
+        </p>
+      </div>
+
+      <!-- ============ TAB 3: ALERTS (alarm sound) ============ -->
+      <div class="tab-page" id="tab-alerts">
+        <h3>Alarm sound (plays when a timer ends)</h3>
+        <div class="setting-row">
+          <label>Enable alarm</label>
+          <label class="switch">
+            <input type="checkbox" id="soundToggle" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <!-- The list of alarm options is built by JS into here -->
+        <div id="alertOptions"></div>
+        <h3>Alarm volume</h3>
+        <div class="volume-row" style="margin-top:4px;">
+          <span style="color:#888;">🔈</span>
+          <input type="range" id="alertVolume" min="0" max="1" step="0.01"
+                 style="accent-color:#222;" />
+          <span style="color:#888;">🔊</span>
+        </div>
+
+        <h3>Button click sounds</h3>
+        <div class="setting-row">
+          <!-- Separate from the alarm: mutes button clicks only. -->
+          <label>UI click sounds</label>
+          <label class="switch">
+            <input type="checkbox" id="uiSoundsToggle" />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- ============ TAB 4: REPORTS ============ -->
+      <div class="tab-page" id="tab-reports">
+        <div class="report-section-title">Today</div>
+        <div class="stat-grid">
+          <div class="stat-card"><div class="stat-value" id="todayMinutes">0</div><div class="stat-label">Focus min</div></div>
+          <div class="stat-card"><div class="stat-value" id="todaySessions">0</div><div class="stat-label">Sessions</div></div>
+          <div class="stat-card"><div class="stat-value" id="todayTasks">0</div><div class="stat-label">Tasks done</div></div>
+        </div>
+
+        <div class="report-section-title">This week</div>
+        <div class="stat-grid">
+          <div class="stat-card"><div class="stat-value" id="weekMinutes">0</div><div class="stat-label">Focus min</div></div>
+          <div class="stat-card"><div class="stat-value" id="weekSessions">0</div><div class="stat-label">Sessions</div></div>
+          <div class="stat-card"><div class="stat-value" id="weekTasks">0</div><div class="stat-label">Tasks done</div></div>
+        </div>
+
+        <div class="report-section-title">Focus minutes — last 7 days</div>
+        <div class="chart" id="chart"><!-- bars built by JS --></div>
+        <div class="chart-labels" id="chartLabels"><!-- day labels built by JS --></div>
+
+        <!-- MONTHLY: a calendar of the current month. Days with at least one
+             completed focus session are highlighted. -->
+        <div class="report-section-title">This month</div>
+        <div class="stat-grid">
+          <div class="stat-card"><div class="stat-value" id="monthDays">0/0</div><div class="stat-label">Days studied</div></div>
+          <div class="stat-card"><div class="stat-value" id="monthMinutes">0</div><div class="stat-label">Focus min</div></div>
+          <div class="stat-card"><div class="stat-value" id="monthSessions">0</div><div class="stat-label">Sessions</div></div>
+        </div>
+        <div class="cal-weekdays">
+          <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
+        </div>
+        <div class="calendar" id="calendar"><!-- day cells built by JS --></div>
+
+        <!-- YEARLY: one bar per month (total focus minutes this year). -->
+        <div class="report-section-title">This year — focus minutes per month</div>
+        <div class="chart" id="yearChart"><!-- bars built by JS --></div>
+        <div class="chart-labels" id="yearLabels"><!-- month labels built by JS --></div>
+      </div>
+
+      <!-- ============ TAB 5: LEADERBOARD ============ -->
+      <div class="tab-page" id="tab-leaderboard">
+        <div class="report-section-title">Global Ranking</div>
+        <p style="font-size:0.82rem; color:#888; margin-bottom:12px;">
+          Top focused users this month. Sign in to appear on the board.
+        </p>
+        <div id="leaderboardList" style="display:flex; flex-direction:column; gap:6px;">
+          <p style="color:#aaa; text-align:center; padding:24px 0;">Loading…</p>
+        </div>
+      </div>
+
+      <!-- ============ TAB 6: INTEGRATIONS ============ -->
+      <div class="tab-page" id="tab-integrations">
+        <div class="report-section-title">Google Integrations</div>
+        <p style="font-size:0.82rem; color:#888; margin-bottom:14px;">
+          Connect your Google account to sync tasks and log focus sessions to your calendar.
+          Requires Google sign-in.
+        </p>
+
+        <div id="integrationsAuth" style="text-align:center; padding:16px 0; display:none;">
+          <p style="color:#c44; font-size:0.9rem;">Sign in with Google first (Account tab) to enable integrations.</p>
+        </div>
+
+        <div id="integrationsPanel" style="display:none;">
+          <!-- Google Calendar -->
+          <div style="border:1px solid #eee; border-radius:12px; padding:16px; margin-bottom:12px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+              <div>
+                <strong style="color:#222;">Google Calendar</strong>
+                <p style="font-size:0.8rem; color:#888; margin-top:2px;">Auto-log focus sessions as calendar events</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="gcalToggle" />
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div id="gcalStatus" style="font-size:0.8rem; color:#4caf50; display:none;"></div>
+          </div>
+
+          <!-- Google Tasks -->
+          <div style="border:1px solid #eee; border-radius:12px; padding:16px; margin-bottom:12px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+              <div>
+                <strong style="color:#222;">Google Tasks</strong>
+                <p style="font-size:0.8rem; color:#888; margin-top:2px;">Sync your Pomora tasks to Google Tasks</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="gtasksToggle" />
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div id="gtasksStatus" style="font-size:0.8rem; color:#4caf50; display:none;"></div>
+            <button class="auth-primary" id="syncTasksNowBtn"
+                    style="margin-top:8px; font-size:0.82rem; padding:8px 16px; display:none;">
+              Sync tasks now
+            </button>
+          </div>
+
+          <!-- Manual re-auth button -->
+          <button class="auth-primary" id="reconnectGoogleBtn"
+                  style="background:#4285F4; margin-top:8px; font-size:0.85rem;">
+            Reconnect Google permissions
+          </button>
+
+          <!-- Notion -->
+          <div class="report-section-title" style="margin-top:24px;">Notion</div>
+          <p style="font-size:0.82rem; color:#888; margin-bottom:14px;">
+            Log completed focus sessions and sync tasks to a Notion database.
+          </p>
+
+          <div style="border:1px solid #eee; border-radius:12px; padding:16px; margin-bottom:12px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+              <div>
+                <strong style="color:#222;">Notion Sync</strong>
+                <p style="font-size:0.8rem; color:#888; margin-top:2px;">Log sessions & tasks to Notion</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="notionToggle" />
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div id="notionConfig" style="display:none;">
+              <div style="margin-bottom:8px;">
+                <label style="font-size:0.8rem; color:#666; display:block; margin-bottom:3px;">Integration Token</label>
+                <input type="password" id="notionToken" placeholder="secret_..."
+                       style="width:100%; padding:8px; border:1px solid #ddd; border-radius:8px; font-size:0.85rem;" />
+              </div>
+              <div style="margin-bottom:8px;">
+                <label style="font-size:0.8rem; color:#666; display:block; margin-bottom:3px;">Database ID</label>
+                <input type="text" id="notionDbId" placeholder="Paste database ID or URL"
+                       style="width:100%; padding:8px; border:1px solid #ddd; border-radius:8px; font-size:0.85rem;" />
+              </div>
+              <div style="margin-bottom:8px;">
+                <label style="font-size:0.8rem; color:#666; display:block; margin-bottom:3px;">Proxy URL (required for browser)</label>
+                <input type="text" id="notionProxy" placeholder="https://your-worker.workers.dev" value="https://fancy-dust-281c.lucasdibble2010.workers.dev"
+                       style="width:100%; padding:8px; border:1px solid #ddd; border-radius:8px; font-size:0.85rem;" />
+              </div>
+              <button class="auth-primary" id="notionSaveBtn"
+                      style="font-size:0.82rem; padding:8px 16px; background:#333;">
+                Save & Test Connection
+              </button>
+              <div id="notionStatus" style="font-size:0.8rem; margin-top:6px; display:none;"></div>
+              <p style="font-size:0.75rem; color:#aaa; margin-top:10px; line-height:1.5;">
+                <strong>Setup:</strong> Create a Notion integration at notion.so/my-integrations,
+                then share your database with it. Deploy the included
+                <code>notion-proxy-worker.js</code> to Cloudflare Workers (free) for the proxy.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button class="modal-close" id="closeSettingsBtn">Done</button>
+    </div>
+  </div>
+
+<!-- =========================================================================
+     JAVASCRIPT
+     The whole app's logic. Read top-to-bottom; it's organized into sections:
+       1. Config & state
+       2. Persistence (localStorage)
+       3. Sound (Web Audio API — no audio files needed)
+       4. Timer engine
+       5. Mode + theme rendering
+       6. Task list
+       7. Settings
+       8. Wiring up buttons + initial load
+     ========================================================================= -->
+<script>
+/* ============================================================
+   1. CONFIG & STATE
+   ============================================================ */
+
+// The color themes. Each theme defines a background color per mode, plus its
+// OWN Spotify playlist.
+//
+// >>> PASTE EACH THEME'S SPOTIFY PLAYLIST EMBED URL in "playlist" below. <<<
+//   Spotify -> your playlist -> Share -> "Embed playlist" -> copy the src URL.
+//   It looks like: https://open.spotify.com/embed/playlist/XXXX?utm_source=generator
+//   Tip: add "&theme=0" to the end for the DARK embed variant if you prefer.
+//   (Only the playlist + the container styling change with the theme — the
+//    inside of the Spotify player can't be recolored. That's expected.)
+const THEMES = {
+  tomato: {
+    name: "Tomato",
+    swatch: "#ba4949",
+    focus: "#ba4949", short: "#38858a", long: "#397097",
+    playlist: "https://open.spotify.com/embed/playlist/37i9dQZF1DWWQRwui0ExPn?utm_source=generator",
+  },
+  forest: {
+    name: "Forest",
+    swatch: "#4b7d57",
+    focus: "#4b7d57", short: "#7a9e6b", long: "#3d6b52",
+    playlist: "https://open.spotify.com/embed/playlist/37i9dQZF1DWWQRwui0ExPn?utm_source=generator",
+  },
+  midnight: {
+    name: "Midnight",
+    swatch: "#3a3f58",
+    focus: "#3a3f58", short: "#50577a", long: "#2c3047",
+    playlist: "https://open.spotify.com/embed/playlist/37i9dQZF1DWWQRwui0ExPn?utm_source=generator",
+  },
+  lavender: {
+    name: "Lavender",
+    swatch: "#7b6ca8",
+    focus: "#7b6ca8", short: "#9d83b5", long: "#5e5288",
+    playlist: "https://open.spotify.com/embed/playlist/37i9dQZF1DWWQRwui0ExPn?utm_source=generator",
+  },
+  // Slate theme built around the Pomora brand grey (#9CA3AF) so the accent
+  // colors match the logo.
+  slate: {
+    name: "Slate",
+    swatch: "#9CA3AF",
+    focus: "#6b7280", short: "#4b5563", long: "#374151",
+    playlist: "https://open.spotify.com/embed/playlist/37i9dQZF1DWWQRwui0ExPn?utm_source=generator",
+  },
+};
+
+// "settings" holds everything the user can customize. Loaded from localStorage
+// or falls back to these defaults.
+let settings = {
+  durations: { focus: 25, short: 5, long: 15 }, // minutes
+  longBreakInterval: 4,    // long break after every N focus sessions
+  autoStartBreaks: true,   // auto-start a break when focus ends
+  autoStartPomodoros: false,// auto-start focus when a break ends
+  sound: true,             // master on/off for the alarm
+  theme: "tomato",
+  bgIndex: 0,              // which background image is showing
+  soundIndex: 0,           // which ambient track is selected
+  volume: 0.6,             // ambient volume 0..1
+  alertIndex: 0,           // which alarm sound is chosen (new)
+  alertVolume: 0.7,        // alarm volume 0..1 (new)
+  uiSounds: true,          // play button click sounds (new)
+  userName: "",            // display name shown on the home page (new)
+  homeBgCustom: "",        // uploaded home background (data URL); "" = presets (new)
+  lightMode: false,        // (#3) global light(true)/dark(false) appearance
+  xp: 0,                   // XP earned THIS month (resets monthly) (new)
+  xpMonth: "",             // "YYYY-MM" marker so we know when to reset XP (new)
+  progressColor: "",       // countdown line color; "" = follow the theme (new)
+  // Per-element fonts. "" defaults are filled in from DEFAULT_FONTS on load.
+  fonts: {
+    timer:    '"Space Grotesk", sans-serif',
+    tasks:    '"Inter", sans-serif',
+    button:   '"Inter", sans-serif',
+    modes:    '"Inter", sans-serif',
+    settings: '"Plus Jakarta Sans", sans-serif',
+  },
+};
+
+// "history" tracks completed work for the Reports tab. It's an object keyed by
+// date string "YYYY-MM-DD": { sessions, minutes, tasks }.
+let history = {};
+
+// "state" holds the live, moment-to-moment app state (not all persisted).
+let state = {
+  mode: "focus",        // "focus" | "short" | "long"
+  remaining: 25 * 60,   // seconds left on current timer
+  running: false,
+  intervalId: null,     // setInterval handle so we can stop it
+  focusCount: 0,        // completed focus sessions (resets on page reload)
+};
+
+let tasks = [];          // array of task objects
+let activeTaskId = null; // id of the currently selected task
+
+// Grab the DOM elements we use repeatedly.
+const $ = (id) => document.getElementById(id);
+const timeEl = $("time");
+const startBtn = $("startBtn");
+const sessionCountEl = $("sessionCount");
+const taskListEl = $("taskList");
+const finishTimeEl = $("finishTime");
+
+
+/* ============================================================
+   2. PERSISTENCE (localStorage)
+   Everything is stored as JSON strings under simple keys.
+   ============================================================ */
+
+function saveSettings() {
+  localStorage.setItem("pomodoro.settings", JSON.stringify(settings));
+}
+function saveTasks() {
+  localStorage.setItem("pomodoro.tasks", JSON.stringify(tasks));
+  localStorage.setItem("pomodoro.activeTask", JSON.stringify(activeTaskId));
+}
+function saveHistory() {
+  localStorage.setItem("pomodoro.history", JSON.stringify(history));
+}
+function loadFromStorage() {
+  const s = localStorage.getItem("pomodoro.settings");
+  if (s) settings = Object.assign(settings, JSON.parse(s)); // merge so new keys keep defaults
+
+  const t = localStorage.getItem("pomodoro.tasks");
+  if (t) tasks = JSON.parse(t);
+
+  const a = localStorage.getItem("pomodoro.activeTask");
+  if (a) activeTaskId = JSON.parse(a);
+
+  const h = localStorage.getItem("pomodoro.history");
+  if (h) history = JSON.parse(h);
+}
+
+// ---- Reports helpers --------------------------------------------------------
+// Today's date as "YYYY-MM-DD" (used as the history key).
+function todayKey(d = new Date()) {
+  return d.getFullYear() + "-" +
+         String(d.getMonth() + 1).padStart(2, "0") + "-" +
+         String(d.getDate()).padStart(2, "0");
+}
+// Get (or create) today's record so we can add to it.
+function todayRecord() {
+  const key = todayKey();
+  if (!history[key]) history[key] = { sessions: 0, minutes: 0, tasks: 0 };
+  return history[key];
+}
+// Called when a focus session completes.
+function recordFocusSession(minutes) {
+  const rec = todayRecord();
+  rec.sessions += 1;
+  rec.minutes += minutes;
+  saveHistory();
+}
+// Called when a task is marked done.
+function recordTaskCompleted() {
+  todayRecord().tasks += 1;
+  saveHistory();
+}
+
+
+/* ============================================================
+   3. SOUND (Web Audio API)
+   We synthesize sounds in the browser so the file stays
+   self-contained (no .mp3 files to ship).
+   ============================================================ */
+
+let audioCtx = null;            // created on first use (browsers require a user gesture)
+
+function getAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+/* The ALARM sounds, loaded from /sounds/alerts. These are kept completely
+   separate from the ambient background sounds (which live in /sounds).
+   To add your own: drop the .mp3 in /sounds/alerts and add a line here. */
+const ALERT_SOUNDS = [
+  { name: "Bell",        file: "bell.mp3" },
+  { name: "Digital",     file: "digital.mp3" },
+  { name: "Chime",       file: "chime.mp3" },
+  { name: "Magical",     file: "magical.mp3" },
+];
+
+const alertPlayer = $("alertPlayer"); // the <audio> element for the alarm
+
+/* ------------------------------------------------------------
+   BUTTON CLICK SOUND (UI feedback)
+   A small pool of preloaded Audio objects so rapid clicks each get a sound
+   (one Audio can't overlap itself). Controlled by settings.uiSounds, which is
+   SEPARATE from the alarm toggle.
+
+   >>> Put your click file at /sounds/ui/click.mp3 (swap the name below). <<<
+   To change the loudness, edit UI_CLICK_VOLUME (0 = silent, 1 = full).
+   ------------------------------------------------------------ */
+const UI_CLICK_FILE   = "sounds/ui/click.mp3"; // your click sound file
+const UI_CLICK_VOLUME = 1.0;
+
+// Build a few copies so quick repeated clicks can overlap.
+const clickPool = [];
+for (let i = 0; i < 4; i++) {
+  const a = new Audio(UI_CLICK_FILE);
+  a.volume = UI_CLICK_VOLUME;
+  a.preload = "auto";
+  clickPool.push(a);
+}
+let clickIndex = 0; // which pooled sound to use next (round-robin)
+
+// Play a short click. Resets currentTime so it always fires instantly, and is
+// wrapped so a missing file / autoplay block can never break the app.
+function playClick() {
+  if (!settings.uiSounds) return; // user muted UI sounds
+  const a = clickPool[clickIndex];
+  clickIndex = (clickIndex + 1) % clickPool.length;
+  try {
+    a.currentTime = 0;            // rewind so rapid clicks retrigger
+    a.volume = UI_CLICK_VOLUME;
+    const p = a.play();
+    if (p) p.catch(() => {});     // ignore autoplay/missing-file errors
+  } catch (e) { /* never let a click sound crash anything */ }
+}
+
+// Play the chosen alarm file. If the file is missing/unsupported, fall back
+// to a synthesized "ding" so the alarm always does *something*.
+function playAlarm() {
+  if (!settings.sound) return; // master alarm toggle is off
+  const track = ALERT_SOUNDS[settings.alertIndex];
+  alertPlayer.src = "sounds/alerts/" + track.file;
+  alertPlayer.volume = settings.alertVolume;
+  alertPlayer.currentTime = 0;
+  alertPlayer.play().catch(playBeepFallback); // .play() rejects if file can't load
+}
+
+// A short pleasant "ding ding" made of two beeps (the fallback alarm).
+function playBeepFallback() {
+  const ctx = getAudio();
+  [880, 1175].forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    osc.connect(gain).connect(ctx.destination);
+    const start = ctx.currentTime + i * 0.25;
+    // Fade each beep in and out so it isn't a harsh click.
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(settings.alertVolume * 0.4, start + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.22);
+    osc.start(start);
+    osc.stop(start + 0.25);
+  });
+}
+
+// Preview a specific alarm sound (used by the "Preview" buttons in Settings).
+function previewAlert(index) {
+  const track = ALERT_SOUNDS[index];
+  alertPlayer.src = "sounds/alerts/" + track.file;
+  alertPlayer.volume = settings.alertVolume;
+  alertPlayer.currentTime = 0;
+  alertPlayer.play().catch(playBeepFallback);
+}
+
+/* The built-in ambient sound player was removed. Sound now comes from the
+   Spotify embed in the bottom-left corner (see the .spotify iframe in the
+   HTML). Nothing to wire up here — Spotify's own player handles playback. */
+
+
+/* ============================================================
+   3b. AESTHETIC BACKGROUNDS (images from the /images folder)
+   Just drop background1.jpg, background2.jpg, background3.jpg ... into
+   /images. The app AUTO-DETECTS which ones exist (no number to update).
+   ============================================================ */
+
+// Highest number we'll ever look for. Bump this only if you somehow have
+// more than 30 backgrounds — otherwise you never touch it.
+const BG_MAX_PROBE = 30;
+
+// ===== EDIT YOUR BACKGROUND NAMES HERE =====
+// The name shown for each image. The 1st name = background1.jpg, 2nd =
+// background2.jpg, and so on. If you have more images than names, the extras
+// just show "Background 3", "Background 4", etc.
+const BACKGROUND_NAMES = [
+  "Misty Mountains",
+  "Starlit Valley",
+  "Golden Dunes",
+  "Northern Lights",
+  "Snowy Peaks",
+  "Ocean Waves",
+  "Coastal Sunset",
+  "Yosemite Valley",
+  "Winter Forest",
+  "Moonlit Falls",
+];
+
+// Filled in at startup with the URLs of images that actually loaded.
+let backgrounds = [];
+
+// Try to load "images/background<n>.jpg". Resolves true if it exists, false if not.
+// We create an off-screen Image and listen for its load/error events.
+function imageExists(url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    img.src = url;
+  });
+}
+
+// Probe background1.jpg, background2.jpg, ... and collect the ones that exist.
+// We stop at the FIRST missing number (so they should be numbered with no gaps).
+async function detectBackgrounds() {
+  backgrounds = [];
+  for (let n = 1; n <= BG_MAX_PROBE; n++) {
+    const url = `images/background${n}.jpg`;
+    if (await imageExists(url)) {
+      backgrounds.push(url);
+    } else {
+      break; // first gap = end of the list
+    }
+  }
+  // Make sure the saved index still points at a real image.
+  if (settings.bgIndex >= backgrounds.length) settings.bgIndex = 0;
+  applyBackground();
+}
+
+// Return the friendly name for a background index (falls back to a number).
+function backgroundName(index) {
+  return BACKGROUND_NAMES[index] || ("Background " + (index + 1));
+}
+
+// Show the background at settings.bgIndex, fade it in, and update the name label.
+function applyBackground() {
+  // A custom uploaded image (if set) overrides the preset scenery images.
+  if (settings.homeBgCustom) {
+    $("bgLayer").style.backgroundImage = `url("${settings.homeBgCustom}")`;
+    $("bgLayer").style.opacity = 1;
+    $("bgLabel").textContent = "Custom image";
+    return;
+  }
+  if (backgrounds.length === 0) {       // no preset images found
+    $("bgLabel").textContent = "No images";
+    return;
+  }
+  const url = backgrounds[settings.bgIndex];
+  const img = new Image();
+  img.onload = () => {
+    $("bgLayer").style.backgroundImage = `url("${url}")`;
+    $("bgLayer").style.opacity = 1;
+  };
+  img.src = url;
+  $("bgLabel").textContent = backgroundName(settings.bgIndex);
+}
+
+// Cycle backgrounds. step is +1 or -1.
+function changeBackground(step) {
+  if (backgrounds.length === 0) return;
+  settings.bgIndex = (settings.bgIndex + step + backgrounds.length) % backgrounds.length;
+  saveSettings();
+  applyBackground();
+}
+
+
+// Parallax: shift background-position as user scrolls so tall images are revealed.
+window.addEventListener("scroll", () => {
+  const scrollFraction = window.scrollY / (document.body.scrollHeight - window.innerHeight || 1);
+  $("bgLayer").style.backgroundPosition = `center ${scrollFraction * 100}%`;
+}, { passive: true });
+
+/* ============================================================
+   3c. MOUSE HALO (glow that trails the cursor)
+   We store the real mouse position, then each animation frame we
+   move the halo a little closer to it. That "lerp" creates the
+   smooth trailing motion.
+   ============================================================ */
+const halo = $("halo");
+let mouseX = window.innerWidth / 2, mouseY = window.innerHeight / 2; // target
+let haloX = mouseX, haloY = mouseY;                                  // current
+
+window.addEventListener("mousemove", (e) => {
+  mouseX = e.clientX;
+  mouseY = e.clientY;
+});
+
+function animateHalo() {
+  // Move 12% of the remaining distance each frame (smaller = slower trail).
+  haloX += (mouseX - haloX) * 0.12;
+  haloY += (mouseY - haloY) * 0.12;
+  // -150 centers the 300px-wide halo on the cursor.
+  halo.style.transform = `translate(${haloX - 150}px, ${haloY - 150}px)`;
+  requestAnimationFrame(animateHalo); // loop forever
+}
+animateHalo();
+
+
+/* ============================================================
+   4. TIMER ENGINE
+   ============================================================ */
+
+// Format seconds -> "MM:SS"
+function formatTime(totalSeconds) {
+  const m = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
+  const s = (totalSeconds % 60).toString().padStart(2, "0");
+  return `${m}:${s}`;
+}
+
+// Update the big number + the browser tab title.
+function renderTime() {
+  timeEl.textContent = formatTime(state.remaining);
+  document.title = `${formatTime(state.remaining)} — ${labelForMode(state.mode)}`;
+}
+
+// ---- Focus mode + halo: both driven by whether the timer is running -------
+
+// Show the halo ONLY when the timer is NOT running. One function, called from
+// both start and pause, so the halo can never get out of sync with the timer.
+function updateHaloForTimer() {
+  halo.style.opacity = state.running ? "0" : "1";
+}
+
+// Enter/leave "focus mode". The body class does the visual work in CSS:
+// everything except the timer, header, and Spotify collapses/fades away.
+function setFocusMode(on) {
+  document.body.classList.toggle("focus-mode", on);
+}
+
+/* ---- Countdown progress line --------------------------------------------
+   The line below the header shrinks from full -> empty as the timer runs.
+   The trick: we set a CSS transition whose DURATION equals the remaining
+   seconds, then set the width to 0 — the browser smoothly animates it for us.
+   So we don't update it every tick; we let CSS do one smooth animation. */
+const progressFill = $("progressFill");
+
+// Refill the bar instantly (no animation) — used on reset / mode change.
+function resetProgress() {
+  progressFill.style.transition = "none";
+  progressFill.style.transform = "scaleX(1)";
+  void progressFill.offsetWidth; // force the browser to apply it right now
+}
+
+// Animate the bar from its current fill down to empty over the remaining time.
+function runProgress() {
+  const total = settings.durations[state.mode] * 60;
+  const fraction = state.remaining / total; // how full it should start
+  // 1) jump to the current fraction with no animation...
+  progressFill.style.transition = "none";
+  progressFill.style.transform = `scaleX(${fraction})`;
+  void progressFill.offsetWidth;            // apply that start point
+  // 2) ...then animate down to empty over the remaining seconds (linear).
+  progressFill.style.transition = `transform ${state.remaining}s linear`;
+  progressFill.style.transform = "scaleX(0)";
+}
+
+// Freeze the bar exactly where it is right now (used on pause).
+function freezeProgress() {
+  const current = getComputedStyle(progressFill).transform; // a matrix(...)
+  progressFill.style.transition = "none";
+  progressFill.style.transform = current === "none" ? "scaleX(1)" : current;
+}
+
+function startTimer() {
+  if (state.running) return;
+  getAudio(); // "unlock" audio on this user gesture so the alarm can play later
+  state.running = true;
+  startBtn.textContent = "Pause";
+  // Enter focus mode, hide the halo, close Settings if open, scroll to the
+  // timer, start the progress bar, and clear the pause "lighting" glow.
+  setFocusMode(true);
+  document.body.classList.remove("is-paused"); // (#6) glow off on resume
+  updateHaloForTimer();
+  closeSettings();
+  scrollToTimer();   // (#3) smoothly center the timer in the viewport
+  runProgress();     // animate the progress line down to empty
+  updateRunningBadge(); // show "Pomodoro is still running" badge in Notes view
+  // Tick once per second.
+  state.intervalId = setInterval(() => {
+    state.remaining--;
+    // (#7) XP accrues from focus TIME: award one second of XP each focus tick.
+    if (state.mode === "focus") awardXpSeconds(1);
+    if (state.remaining <= 0) {
+      timerFinished();
+    } else {
+      renderTime();
+    }
+  }, 1000);
+}
+
+function pauseTimer() {
+  state.running = false;
+  startBtn.textContent = "Start";
+  clearInterval(state.intervalId);
+  // Leave focus mode, bring the halo back, freeze the progress line, and (by
+  // default) clear the pause glow — only an explicit user pause re-adds it.
+  setFocusMode(false);
+  freezeProgress();
+  updateHaloForTimer();
+  updateRunningBadge(); // hide the "still running" badge
+  document.body.classList.remove("is-paused");
+}
+
+// Smoothly scroll so the timer section is centered in the viewport.
+function scrollToTimer() {
+  const timer = document.getElementById("timerSection");
+  if (timer) timer.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+// Smoothly scroll all the way to the TOP of the page (used on Start). The
+// browser's "smooth" behavior gives the calm, eased glide.
+function scrollToTop() {
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+// Called when the USER presses Pause: pause the clock, glide the timer back to
+// center, and turn ON the soft pause "lighting" glow (#6).
+function pauseByUser() {
+  pauseTimer();
+  document.body.classList.add("is-paused"); // soft glow eases in (see #pauseGlow)
+  scrollToTimer();
+}
+
+function resetTimer() {
+  pauseTimer();
+  state.remaining = settings.durations[state.mode] * 60;
+  resetProgress(); // refill the progress line
+  renderTime();
+}
+
+// Called when the countdown hits zero.
+function timerFinished() {
+  pauseTimer();
+  playAlarm();
+
+  const wasFocus = state.mode === "focus";
+
+  // If a focus session just ended, count it, log it, and advance the task.
+  if (wasFocus) {
+    state.focusCount++;
+    sessionCountEl.textContent = state.focusCount;
+    recordFocusSession(settings.durations.focus); // for the Reports tab
+    advanceActiveTaskPomodoro();
+  }
+
+  // Decide what the next mode should be.
+  const next = nextMode();
+  switchMode(next, /*autoFromTimer=*/true);
+
+  // Auto-start the next timer based on which kind of timer is coming up.
+  // After focus -> a break starts (autoStartBreaks).
+  // After a break -> focus starts (autoStartPomodoros).
+  const shouldAutoStart = wasFocus ? settings.autoStartBreaks : settings.autoStartPomodoros;
+  if (shouldAutoStart) startTimer();
+}
+
+// Work out the next mode after the current one finishes.
+function nextMode() {
+  if (state.mode === "focus") {
+    // After every Nth focus session, take a long break instead of a short one.
+    return (state.focusCount % settings.longBreakInterval === 0) ? "long" : "short";
+  }
+  // After any break, go back to focus.
+  return "focus";
+}
+
+
+/* ============================================================
+   5. MODE + THEME RENDERING
+   ============================================================ */
+
+function labelForMode(mode) {
+  return { focus: "Focus", short: "Short Break", long: "Long Break" }[mode];
+}
+
+// Switch to a given mode, reset its clock, update tabs + colors.
+// autoFromTimer = true means it was triggered by a finished timer (so we don't
+// want to wipe a running state, but here we always reset the clock value).
+function switchMode(mode, autoFromTimer = false) {
+  if (!autoFromTimer) pauseTimer(); // manual tab clicks stop the current timer
+  state.mode = mode;
+  state.remaining = settings.durations[mode] * 60;
+
+  // Update which tab looks active.
+  document.querySelectorAll(".mode-tab").forEach((tab) => {
+    tab.classList.toggle("active", tab.dataset.mode === mode);
+  });
+
+  applyTheme();
+  resetProgress(); // new mode = fresh full progress line
+  renderTime();
+}
+
+// Apply the chosen theme's color for the current mode to the CSS variables.
+function applyTheme() {
+  const theme = THEMES[settings.theme];
+  const color = theme[state.mode];
+  document.documentElement.style.setProperty("--bg", color);
+  document.documentElement.style.setProperty("--accent", color);
+  // The Spotify container restyles automatically via var(--accent) in CSS.
+  applySpotifyTheme();
+}
+
+// Swap the Spotify playlist to match the current theme. We only change the
+// iframe's src when the PLAYLIST actually changes (i.e. on a theme change, not
+// on every mode switch) — otherwise the player would reload and restart music.
+let currentPlaylist = null;
+function applySpotifyTheme() {
+  const theme = THEMES[settings.theme];
+  const frame = $("spotifyFrame");
+  if (frame && theme.playlist && theme.playlist !== currentPlaylist) {
+    frame.src = theme.playlist;
+    currentPlaylist = theme.playlist;
+  }
+}
+
+
+/* ============================================================
+   6. TASK LIST
+   ============================================================ */
+
+// Draw all tasks from the "tasks" array into the page.
+// Remembers the id of a task we JUST added, so only THAT one plays the
+// slide-in animation (the whole list is rebuilt on every render).
+let justAddedTaskId = null;
+
+function renderTasks() {
+  taskListEl.innerHTML = "";
+  tasks.forEach((task) => {
+    const li = document.createElement("li");
+    li.className = "task";
+    if (task.id === activeTaskId) li.classList.add("active");
+    if (task.done) li.classList.add("done");
+    if (task.id === justAddedTaskId) li.classList.add("task-enter"); // (#1) animate in
+
+    li.innerHTML = `
+      <span class="check">${task.done ? "✓" : ""}</span>
+      <span class="task-name">${escapeHtml(task.name)}</span>
+      <span class="task-est">${task.completed}/${task.est} 🍅</span>
+      <button class="task-del" title="Delete">✕</button>
+    `;
+
+    // Clicking the round check toggles "done".
+    li.querySelector(".check").addEventListener("click", (e) => {
+      e.stopPropagation();
+      task.done = !task.done;
+      if (task.done) recordTaskCompleted(); // log it for the Reports tab
+      saveTasks();
+      renderTasks();
+    });
+
+    // Clicking the ✕ deletes the task.
+    li.querySelector(".task-del").addEventListener("click", (e) => {
+      e.stopPropagation();
+      tasks = tasks.filter((t) => t.id !== task.id);
+      if (activeTaskId === task.id) activeTaskId = null;
+      saveTasks();
+      renderTasks();
+    });
+
+    // Clicking anywhere else on the row selects it as the active task.
+    li.addEventListener("click", () => {
+      activeTaskId = task.id;
+      saveTasks();
+      renderTasks();
+    });
+
+    taskListEl.appendChild(li);
+  });
+
+  justAddedTaskId = null; // animation already applied; don't replay on next render
+  updateFinishTime();
+}
+
+// Add a new task from the form inputs.
+function addTask(name, est) {
+  const newId = Date.now();   // simple unique id
+  tasks.push({
+    id: newId,
+    name: name,
+    est: est,           // estimated pomodoros
+    completed: 0,       // pomodoros done on this task
+    done: false,
+  });
+  justAddedTaskId = newId;    // (#1) mark it so it slides in
+  saveTasks();
+  renderTasks();
+}
+
+// When a focus session finishes, credit the active task with one pomodoro.
+function advanceActiveTaskPomodoro() {
+  const task = tasks.find((t) => t.id === activeTaskId);
+  if (task) {
+    task.completed++;
+    // If this finished the task, mark it done and log the completion.
+    if (task.completed >= task.est && !task.done) {
+      task.done = true;
+      recordTaskCompleted();
+    }
+    saveTasks();
+    renderTasks();
+  }
+}
+
+// Estimate the wall-clock time we'll finish all remaining pomodoros.
+function updateFinishTime() {
+  // Count remaining pomodoros across not-done tasks.
+  let remainingPomos = 0;
+  tasks.forEach((t) => {
+    if (!t.done) remainingPomos += Math.max(0, t.est - t.completed);
+  });
+
+  if (remainingPomos === 0) {
+    finishTimeEl.textContent = "Finish: --:--";
+    return;
+  }
+
+  // Rough estimate: each remaining pomodoro = focus length + a short break.
+  const minutesEach = settings.durations.focus + settings.durations.short;
+  const totalMinutes = remainingPomos * minutesEach;
+  const finish = new Date(Date.now() + totalMinutes * 60 * 1000);
+  const hh = finish.getHours().toString().padStart(2, "0");
+  const mm = finish.getMinutes().toString().padStart(2, "0");
+  finishTimeEl.textContent = `Finish: ${hh}:${mm} (${remainingPomos} 🍅 left)`;
+}
+
+// Prevent task names from injecting HTML.
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+
+/* ============================================================
+   7. SETTINGS
+   ============================================================ */
+
+// Push current settings into the settings-modal inputs. Also refresh the
+// dynamic bits (alarm list + reports) so they're current every time it opens.
+function fillSettingsForm() {
+  // Timer tab
+  $("userNameInput").value = settings.userName;
+  $("focusDur").value = settings.durations.focus;
+  $("shortDur").value = settings.durations.short;
+  $("longDur").value = settings.durations.long;
+  $("longInterval").value = settings.longBreakInterval;
+  $("autoStartBreaks").checked = settings.autoStartBreaks;
+  $("autoStartPomodoros").checked = settings.autoStartPomodoros;
+  renderSwatches();
+  // Countdown line color: show the chosen color, or the theme color if "blank".
+  $("progressColor").value = settings.progressColor || currentAccentHex();
+  renderFontPickers();
+  // Alerts tab
+  $("soundToggle").checked = settings.sound;
+  $("alertVolume").value = settings.alertVolume;
+  $("uiSoundsToggle").checked = settings.uiSounds;
+  renderAlertOptions();
+  // Reports tab
+  renderReports();
+}
+
+// Build the colored theme circles.
+function renderSwatches() {
+  const wrap = $("themeSwatches");
+  wrap.innerHTML = "";
+  Object.entries(THEMES).forEach(([key, theme]) => {
+    const sw = document.createElement("div");
+    sw.className = "swatch" + (settings.theme === key ? " selected" : "");
+    sw.style.background = theme.swatch;
+    sw.title = theme.name;
+    sw.addEventListener("click", () => {
+      settings.theme = key;
+      saveSettings();
+      applyTheme();
+      renderSwatches();
+    });
+    wrap.appendChild(sw);
+  });
+}
+
+/* ============================================================
+   PER-ELEMENT FONTS + COUNTDOWN LINE COLOR
+   ============================================================ */
+
+// ===== EDIT THE FONT LIST HERE =====  (also add the font to the <link> URL)
+// "css" is the CSS font-family value used everywhere.
+const FONT_CHOICES = [
+  { name: "Space Grotesk",    css: '"Space Grotesk", sans-serif' },
+  { name: "Inter",            css: '"Inter", sans-serif' },
+  { name: "Plus Jakarta Sans",css: '"Plus Jakarta Sans", sans-serif' },
+  { name: "Manrope",          css: '"Manrope", sans-serif' },
+  { name: "Poppins",          css: '"Poppins", sans-serif' },
+  { name: "DM Sans",          css: '"DM Sans", sans-serif' },
+  { name: "Lora (serif)",     css: '"Lora", serif' },
+  { name: "Roboto Mono",      css: '"Roboto Mono", monospace' },
+];
+
+// Which elements can be re-fonted, and their friendly labels.
+const FONT_TARGETS = [
+  { key: "timer",    label: "Timer digits" },
+  { key: "tasks",    label: "Task list" },
+  { key: "button",   label: "Start / Stop button" },
+  { key: "modes",    label: "Mode labels" },
+  { key: "settings", label: "Settings text" },
+];
+
+// Push the saved font choices into the matching CSS variables (live update).
+function applyFonts() {
+  const f = settings.fonts;
+  document.documentElement.style.setProperty("--font-timer", f.timer);
+  document.documentElement.style.setProperty("--font-tasks", f.tasks);
+  document.documentElement.style.setProperty("--font-button", f.button);
+  document.documentElement.style.setProperty("--font-modes", f.modes);
+  document.documentElement.style.setProperty("--font-settings", f.settings);
+}
+
+// Build one dropdown per element into the settings "Fonts" section.
+function renderFontPickers() {
+  const wrap = $("fontPickers");
+  wrap.innerHTML = "";
+  FONT_TARGETS.forEach((t) => {
+    const row = document.createElement("div");
+    row.className = "setting-row";
+
+    const label = document.createElement("label");
+    label.textContent = t.label;
+
+    const sel = document.createElement("select");
+    sel.className = "font-select";
+    FONT_CHOICES.forEach((fc) => {
+      const opt = document.createElement("option");
+      opt.value = fc.css;
+      opt.textContent = fc.name;
+      opt.style.fontFamily = fc.css; // preview the font in the dropdown
+      if (settings.fonts[t.key] === fc.css) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    // Apply + save instantly when changed.
+    sel.addEventListener("change", () => {
+      settings.fonts[t.key] = sel.value;
+      saveSettings();
+      applyFonts();
+    });
+
+    row.appendChild(label);
+    row.appendChild(sel);
+    wrap.appendChild(row);
+  });
+}
+
+// Apply the chosen countdown-line color. "" means follow the theme accent
+// (we clear the inline color so the CSS var(--accent) takes over).
+function applyProgressColor() {
+  progressFill.style.background = settings.progressColor || "";
+}
+
+// Read-only string of the current theme accent (used to seed the color input).
+function currentAccentHex() {
+  return THEMES[settings.theme][state.mode]; // e.g. "#ba4949"
+}
+
+// Read the form inputs back into "settings" whenever they change.
+function readSettingsFromForm() {
+  settings.durations.focus = Math.max(1, parseInt($("focusDur").value) || 25);
+  settings.durations.short = Math.max(1, parseInt($("shortDur").value) || 5);
+  settings.durations.long = Math.max(1, parseInt($("longDur").value) || 15);
+  settings.longBreakInterval = Math.max(1, parseInt($("longInterval").value) || 4);
+  settings.autoStartBreaks = $("autoStartBreaks").checked;
+  settings.autoStartPomodoros = $("autoStartPomodoros").checked;
+  settings.sound = $("soundToggle").checked;
+  settings.uiSounds = $("uiSoundsToggle").checked; // button click sounds on/off
+  settings.userName = $("userNameInput").value.trim(); // display name
+  applyUserName();                                     // update the home greeting
+  saveSettings();
+
+  // If the timer isn't running, reflect any new duration immediately.
+  if (!state.running) {
+    state.remaining = settings.durations[state.mode] * 60;
+    renderTime();
+  }
+  updateFinishTime();
+}
+
+/* ---- ALERTS tab: build the list of alarm options ---------------------- */
+function renderAlertOptions() {
+  const wrap = $("alertOptions");
+  wrap.innerHTML = "";
+  ALERT_SOUNDS.forEach((sound, i) => {
+    const row = document.createElement("div");
+    row.className = "alert-option" + (settings.alertIndex === i ? " selected" : "");
+    row.innerHTML = `
+      <span class="radio"></span>
+      <span class="name">${sound.name}</span>
+    `;
+    row.addEventListener("click", () => {
+      settings.alertIndex = i;
+      saveSettings();
+      renderAlertOptions();
+      previewAlert(i);
+    });
+    wrap.appendChild(row);
+  });
+}
+
+/* ---- REPORTS tab: compute stats + draw the 7-day bar chart ------------ */
+function renderReports() {
+  // Build an array of the last 7 days (oldest -> newest).
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    days.push(d);
+  }
+
+  // Today's totals.
+  const today = history[todayKey()] || { sessions: 0, minutes: 0, tasks: 0 };
+  $("todayMinutes").textContent = today.minutes;
+  $("todaySessions").textContent = today.sessions;
+  $("todayTasks").textContent = today.tasks;
+
+  // Weekly totals = sum across the last 7 days.
+  let wMin = 0, wSes = 0, wTasks = 0;
+  days.forEach((d) => {
+    const rec = history[todayKey(d)];
+    if (rec) { wMin += rec.minutes; wSes += rec.sessions; wTasks += rec.tasks; }
+  });
+  $("weekMinutes").textContent = wMin;
+  $("weekSessions").textContent = wSes;
+  $("weekTasks").textContent = wTasks;
+
+  // Bar chart. Each bar's height is a percentage of the busiest day.
+  const minutesPerDay = days.map((d) => (history[todayKey(d)] || {}).minutes || 0);
+  const maxMinutes = Math.max(1, ...minutesPerDay); // avoid divide-by-zero
+  const dayLetters = ["S", "M", "T", "W", "T", "F", "S"];
+
+  const chart = $("chart");
+  const labels = $("chartLabels");
+  chart.innerHTML = "";
+  labels.innerHTML = "";
+  days.forEach((d, i) => {
+    const mins = minutesPerDay[i];
+    const heightPct = (mins / maxMinutes) * 100;
+
+    const col = document.createElement("div");
+    col.className = "bar-col";
+    col.innerHTML = `
+      <span class="bar-val">${mins || ""}</span>
+      <div class="bar" style="height:${heightPct}%"></div>
+    `;
+    chart.appendChild(col);
+
+    const label = document.createElement("span");
+    label.textContent = dayLetters[d.getDay()];
+    labels.appendChild(label);
+  });
+
+  // Also refresh the monthly + yearly views.
+  renderMonthly();
+  renderYearly();
+}
+
+// Turn a number of minutes into a friendly label:
+//   under 60 -> "45m"      60+ -> "1h 20m" (or "2h" when no leftover minutes).
+function formatDuration(minutes) {
+  if (minutes < 60) return minutes + "m";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m === 0 ? h + "h" : h + "h " + m + "m";
+}
+
+/* ---- MONTHLY view: a calendar of the current month ----------------------
+   We loop every day of the month, look it up in "history", and highlight days
+   that had at least one completed focus session. (All aggregation is here.) */
+function renderMonthly() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth(); // 0..11
+  const daysInMonth = new Date(year, month + 1, 0).getDate(); // 28..31
+  const firstWeekday = new Date(year, month, 1).getDay();      // 0=Sun..6=Sat
+
+  let activeDays = 0, monthMin = 0, monthSes = 0;
+  const cal = $("calendar");
+  cal.innerHTML = "";
+
+  // Leading blank cells so day 1 lines up under the correct weekday.
+  for (let i = 0; i < firstWeekday; i++) {
+    const blank = document.createElement("div");
+    blank.className = "cal-day empty";
+    cal.appendChild(blank);
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const key = year + "-" + String(month + 1).padStart(2, "0") + "-" + String(day).padStart(2, "0");
+    const rec = history[key];
+    const mins = rec ? rec.minutes : 0;
+    const cell = document.createElement("div");
+    cell.className = "cal-day";
+    // Each cell now shows the day number on top and that day's total focus
+    // time below (e.g. "45m" or "1h 20m"). Empty when there was no focus.
+    cell.innerHTML =
+      `<span class="cal-num">${day}</span>` +
+      `<span class="cal-time">${mins > 0 ? formatDuration(mins) : ""}</span>`;
+    if (rec && rec.sessions > 0) {       // "studied" that day
+      cell.classList.add("active");
+      activeDays++;
+      monthMin += rec.minutes;
+      monthSes += rec.sessions;
+    }
+    if (day === now.getDate()) cell.classList.add("today");
+    cal.appendChild(cell);
+  }
+
+  $("monthDays").textContent = activeDays + "/" + daysInMonth;
+  $("monthMinutes").textContent = monthMin;
+  $("monthSessions").textContent = monthSes;
+}
+
+/* ---- YEARLY view: one bar per month (total focus minutes this year) ------ */
+function renderYearly() {
+  const year = new Date().getFullYear();
+  const monthMins = new Array(12).fill(0); // index 0=Jan .. 11=Dec
+
+  // Bucket every history entry from this year into its month.
+  Object.keys(history).forEach((key) => {        // key = "YYYY-MM-DD"
+    if (key.startsWith(year + "-")) {
+      const m = parseInt(key.slice(5, 7), 10) - 1; // month 0..11
+      monthMins[m] += history[key].minutes || 0;
+    }
+  });
+
+  const max = Math.max(1, ...monthMins); // avoid divide-by-zero
+  const monthLetters = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+  const chart = $("yearChart");
+  const labels = $("yearLabels");
+  chart.innerHTML = "";
+  labels.innerHTML = "";
+
+  monthMins.forEach((min, i) => {
+    const col = document.createElement("div");
+    col.className = "bar-col";
+    // No number label here (12 would be cramped) — just the bar.
+    col.innerHTML = `<div class="bar" style="height:${(min / max) * 100}%"></div>`;
+    chart.appendChild(col);
+
+    const lab = document.createElement("span");
+    lab.textContent = monthLetters[i];
+    labels.appendChild(lab);
+  });
+}
+
+/* ---- Switch between the 4 settings tabs ------------------------------- */
+function showTab(tabId) {
+  // Highlight the chosen tab button.
+  document.querySelectorAll(".settings-tabs button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.tab === tabId);
+  });
+  // Show the matching page, hide the others.
+  document.querySelectorAll(".tab-page").forEach((p) => {
+    p.classList.toggle("active", p.id === "tab-" + tabId);
+  });
+}
+
+
+/* ============================================================
+   8. WIRING UP EVENTS + INITIAL LOAD
+   ============================================================ */
+
+// --- Start / Pause / Reset ---
+startBtn.addEventListener("click", () => {
+  // Running -> user pause (calm home view); otherwise start/resume.
+  state.running ? pauseByUser() : startTimer();
+});
+$("resetBtn").addEventListener("click", resetTimer);
+
+// --- Mode tabs ---
+document.querySelectorAll(".mode-tab").forEach((tab) => {
+  tab.addEventListener("click", () => switchMode(tab.dataset.mode));
+});
+
+// --- Add-task form ---
+$("addTaskBtn").addEventListener("click", () => $("addForm").classList.add("open"));
+$("cancelTaskBtn").addEventListener("click", () => {
+  $("addForm").classList.remove("open");
+  $("taskNameInput").value = "";
+  $("taskEstInput").value = 1;
+});
+$("saveTaskBtn").addEventListener("click", () => {
+  const name = $("taskNameInput").value.trim();
+  const est = Math.max(1, parseInt($("taskEstInput").value) || 1);
+  if (!name) return; // ignore empty
+  addTask(name, est);
+  $("taskNameInput").value = "";
+  $("taskEstInput").value = 1;
+  $("addForm").classList.remove("open");
+});
+
+// --- Settings modal open/close ---
+$("settingsBtn").addEventListener("click", () => {
+  fillSettingsForm();
+  showTab("timer");                 // always open on the Timer tab
+  $("settingsOverlay").classList.add("open");
+});
+function closeSettings() { $("settingsOverlay").classList.remove("open"); }
+$("closeSettingsBtn").addEventListener("click", closeSettings);
+$("closeSettingsX").addEventListener("click", closeSettings);
+// Click outside the modal box to close it.
+$("settingsOverlay").addEventListener("click", (e) => {
+  if (e.target === $("settingsOverlay")) closeSettings();
+});
+// (#8) Pressing Esc closes Settings (when it's open) and returns to the page.
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && $("settingsOverlay").classList.contains("open")) {
+    closeSettings();
+  }
+  if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+    const dir = e.key === "ArrowRight" ? 1 : -1;
+    const settingsOpen = $("settingsOverlay").classList.contains("open");
+    if (settingsOpen) {
+      const tabs = ["timer", "account", "alerts", "reports", "leaderboard", "integrations"];
+      const activeBtn = document.querySelector(".settings-tabs button.active");
+      const cur = tabs.indexOf(activeBtn ? activeBtn.dataset.tab : "");
+      if (cur === -1) return;
+      showTab(tabs[(cur + dir + tabs.length) % tabs.length]);
+      playClick();
+    } else {
+      const modes = ["focus", "short", "long"];
+      const cur = modes.indexOf(state.mode);
+      if (cur === -1) return;
+      switchMode(modes[(cur + dir + modes.length) % modes.length]);
+      playClick();
+    }
+  }
+});
+
+// --- Settings tab switching ---
+document.querySelectorAll(".settings-tabs button").forEach((btn) => {
+  btn.addEventListener("click", () => showTab(btn.dataset.tab));
+});
+
+// Any change to a Timer/Alerts field saves immediately.
+["focusDur","shortDur","longDur","longInterval","userNameInput",
+ "autoStartBreaks","autoStartPomodoros","soundToggle","uiSoundsToggle"].forEach((id) => {
+  $(id).addEventListener("change", readSettingsFromForm);
+});
+
+// Alarm volume slider (live).
+$("alertVolume").addEventListener("input", (e) => {
+  settings.alertVolume = parseFloat(e.target.value);
+  saveSettings();
+});
+
+// (#3) Global light/dark toggle — applies + saves instantly.
+$("appLightToggle").addEventListener("change", (e) => {
+  settings.lightMode = e.target.checked;
+  saveSettings();
+  applyAppTheme();
+});
+
+/* (#2) Custom confirm popup. Call askConfirm("message", onYes). onYes() runs
+   ONLY if the user clicks Yes; No or clicking outside cancels. */
+let confirmYesHandler = null;
+function askConfirm(message, onYes) {
+  $("confirmMsg").textContent = message;
+  confirmYesHandler = onYes;
+  $("confirmOverlay").classList.add("open");
+}
+function closeConfirm() {
+  $("confirmOverlay").classList.remove("open");
+  confirmYesHandler = null;
+}
+$("confirmYes").addEventListener("click", () => {
+  const fn = confirmYesHandler; // remember before clearing
+  closeConfirm();
+  if (fn) fn();                 // do the action only now
+});
+$("confirmNo").addEventListener("click", closeConfirm);
+$("confirmOverlay").addEventListener("click", (e) => {
+  if (e.target === $("confirmOverlay")) closeConfirm(); // click outside = cancel
+});
+
+// --- Countdown line color picker (live) ---
+$("progressColor").addEventListener("input", (e) => {
+  settings.progressColor = e.target.value; // a hex like "#ffcc00"
+  saveSettings();
+  applyProgressColor();
+});
+// "Theme" button clears the custom color so the line follows the theme again.
+$("progressColorReset").addEventListener("click", () => {
+  settings.progressColor = "";
+  saveSettings();
+  applyProgressColor();
+  $("progressColor").value = currentAccentHex(); // reflect the theme color
+});
+
+// --- ACCOUNT tab (front-end only — these don't really log in yet) ---
+let isSignUp = false; // false = "Sign in" mode, true = "Create account" mode
+$("authToggle").addEventListener("click", () => {
+  isSignUp = !isSignUp;
+  // Flip the button label and the helper text between the two modes.
+  // (We only change text content, so no need to re-attach event handlers.)
+  $("authSubmit").textContent = isSignUp ? "Create account" : "Sign in";
+  $("authSwitchText").textContent = isSignUp ? "Already have an account?" : "New here?";
+  $("authToggle").textContent = isSignUp ? "Sign in" : "Create an account";
+});
+// Placeholder actions so the buttons feel alive until real auth is wired up.
+$("authSubmit").addEventListener("click", () => {
+  alert((isSignUp ? "Sign-up" : "Sign-in") + " isn't connected yet — front-end only for now.");
+});
+$("googleBtn").addEventListener("click", () => {
+  alert("Google sign-in isn't connected yet — front-end only for now.");
+});
+
+// (Ambient sound player removed — Spotify handles sound now.)
+
+// --- Background image cycler ---
+$("nextBgBtn").addEventListener("click", () => changeBackground(1));
+$("prevBgBtn").addEventListener("click", () => changeBackground(-1));
+
+// --- Button click sounds (#6) ---
+// ONE delegated listener for the whole page: if the click landed on (or inside)
+// ANY <button>, play the click sound. This covers Start/Pause, Reset, mode
+// tabs, settings controls, notes buttons, etc. — automatically, including
+// buttons added later. (.closest("button") handles clicks on an icon/SVG inside
+// a button.) The mute toggle still works because playClick() checks it.
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  if (btn.id === "startBtn" || btn.id === "resetBtn" || btn.classList.contains("mode-tab")) playClick();
+});
+
+
+/* ============================================================
+   SCROLL-IN REVEAL (IntersectionObserver)
+   Watches every element with class "reveal" and toggles "in-view" BOTH ways:
+   when a section scrolls into view it fades/slides in; when it scrolls back
+   out it resets to the hidden start state — so the animation REPLAYS every
+   time the section re-enters the viewport.
+   To add the effect to a NEW section later: just give it class="reveal".
+   ============================================================ */
+(function setupReveal() {
+  const revealEls = document.querySelectorAll(".reveal");
+
+  // Respect reduced-motion: show everything immediately, no observer.
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    revealEls.forEach((el) => el.classList.add("in-view"));
+    return;
+  }
+
+  const observer = new IntersectionObserver((entries) => {
+    let stagger = 0; // ms added per item entering in the same batch
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        // Entering view: stagger the cascade and fade/slide in.
+        entry.target.style.transitionDelay = stagger + "ms";
+        entry.target.classList.add("in-view");
+        stagger += 120; // >>> change this for a longer/shorter stagger <<<
+      } else {
+        // Leaving view: reset so it can animate again next time. No delay on
+        // the way out, so it tucks away cleanly.
+        entry.target.style.transitionDelay = "0ms";
+        entry.target.classList.remove("in-view");
+      }
+      // NOTE: we do NOT unobserve — keeping the element observed is what lets
+      // the animation repeat on every scroll-in.
+    });
+  }, {
+    threshold: 0.15,        // fire when ~15% of the section is visible
+    // >>> ADJUST RESET POINT HERE <<< rootMargin shrinks the "viewport" the
+    // observer uses. A negative bottom value (e.g. -10%) means a section must
+    // scroll a bit further out before it resets. "0px" = resets right at the
+    // screen edge.
+    rootMargin: "0px 0px 0px 0px",
+  });
+
+  revealEls.forEach((el) => observer.observe(el));
+})();
+
+/* ============================================================
+   USER NAME (home greeting)
+   ============================================================ */
+// Show the saved name on the home page, or a friendly default if unset.
+function applyUserName() {
+  $("userName").textContent = settings.userName ? settings.userName : "friend";
+}
+
+// (#3) Apply the global dark/light appearance. Adding/removing class "light" on
+// <body> swaps the palette; the CSS transitions cross-fade the colors.
+function applyAppTheme() {
+  document.body.classList.toggle("light", settings.lightMode);
+  if ($("appLightToggle")) $("appLightToggle").checked = settings.lightMode;
+}
+
+/* ============================================================
+   XP SYSTEM  (LOCAL, SINGLE USER)
+   NOTE: this XP is stored only in THIS browser (localStorage). A real
+   cross-user leaderboard needs a backend/database — that's a separate phase.
+   ============================================================ */
+/* ===== XP CALIBRATION (#7) =====
+   XP accrues from actual focus TIME (per second while focusing), NOT from
+   finishing whole pomodoros. Calibrated so ~50 hours of focus in a month reach
+   level 30:  50h = 3000 min;  3000 × XP_PER_MINUTE = 30000 XP;  and
+   level = floor(XP / XP_PER_LEVEL) + 1  →  with 1034, 30000 XP = level 30.
+   >>> Tweak these to change the pace. <<< */
+const XP_PER_MINUTE = 10;    // XP earned per focused minute
+const XP_PER_LEVEL  = 1034;  // XP per level (1034 ⇒ ~50h reaches Lv 30)
+const MAX_LEVEL     = 100;   // level cap
+
+// XP lives in its OWN small localStorage key so we can save it every second
+// without rewriting the (possibly large) settings object each tick.
+const XP_KEY = "pomora.xp";
+let xp = 0;        // XP earned THIS month
+let xpMonth = "";  // "YYYY-MM" marker so we know when to reset
+
+function monthKey() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+}
+// Load XP (migrating from the old settings.xp the first time).
+function loadXp() {
+  const saved = JSON.parse(localStorage.getItem(XP_KEY) || "null");
+  if (saved) { xp = saved.xp || 0; xpMonth = saved.month || ""; }
+  else { xp = settings.xp || 0; xpMonth = settings.xpMonth || ""; }
+}
+function saveXp() { localStorage.setItem(XP_KEY, JSON.stringify({ xp, month: xpMonth })); }
+
+// Reset XP at the start of a new month.
+function checkMonthlyReset() {
+  const now = monthKey();
+  if (xpMonth !== now) { xp = 0; xpMonth = now; saveXp(); }
+}
+// Award XP for `seconds` of focus time (called every second while focusing).
+function awardXpSeconds(seconds) {
+  checkMonthlyReset();
+  xp += (XP_PER_MINUTE / 60) * seconds; // per-second slice of the per-minute rate
+  saveXp();
+  renderXp();
+}
+// Draw the level + XP bar.
+function renderXp() {
+  let level = Math.floor(xp / XP_PER_LEVEL) + 1;
+  if (level > MAX_LEVEL) level = MAX_LEVEL;
+  const intoLevel = level >= MAX_LEVEL ? XP_PER_LEVEL : (xp % XP_PER_LEVEL);
+  const percent = (intoLevel / XP_PER_LEVEL) * 100;
+  $("xpLevel").textContent = "Lv " + level;
+  $("xpText").textContent = Math.floor(intoLevel) + " / " + XP_PER_LEVEL + " XP";
+  $("xpFill").style.width = percent + "%";
+}
+
+
+/* ============================================================
+   NOTES VIEW  (in-app overlay; timer keeps running behind it)
+   ============================================================ */
+
+// Notes + editor preferences live under their own localStorage keys.
+const NOTES_KEY = "pomora.notesList";   // array of {id,name,type,content,lastEdited}
+const NOTES_PREFS_KEY = "pomora.notesPrefs";
+const NOTES_AUTOSAVE_MS = 600;          // >>> auto-save debounce delay <<<
+
+// (Notes backgrounds were removed — the surface is now a plain theme color.)
+let notes = JSON.parse(localStorage.getItem(NOTES_KEY) || "[]");
+let notesPrefs = Object.assign(
+  { dark: false, fontFamily: '"Inter", sans-serif', fontSize: "18px", bold: false, guides: false },
+  JSON.parse(localStorage.getItem(NOTES_PREFS_KEY) || "{}")
+);
+let currentNoteId = null;
+let notesAutosaveTimer = null;
+
+function saveNotesList()  { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); }
+function saveNotesPrefs() { localStorage.setItem(NOTES_PREFS_KEY, JSON.stringify(notesPrefs)); }
+
+// Show one of the three notes screens (chooser / library / editor).
+function nvShow(name) {
+  document.querySelectorAll(".nv-screen").forEach((s) => s.classList.remove("active"));
+  $("nv-" + name).classList.add("active");
+}
+
+// "Pomodoro is still running" badge — show only while the timer runs.
+function updateRunningBadge() {
+  $("runningBadge").classList.toggle("show", state.running);
+}
+
+// Light/dark for the whole notes area (the CSS fades it smoothly).
+function applyNotesUITheme() {
+  $("notesView").classList.toggle("dark", notesPrefs.dark);
+  $("uiThemeToggle").textContent = notesPrefs.dark ? "☀️ Light" : "🌙 Dark";
+}
+
+// Put the editor preferences (font, size, bold) onto the writing area.
+function applyEditorPrefs() {
+  $("noteContent").style.fontFamily = notesPrefs.fontFamily;
+  $("noteContent").style.fontSize = notesPrefs.fontSize;
+  $("noteContent").style.fontWeight = notesPrefs.bold ? "700" : "400";
+  $("fontFamily").value = notesPrefs.fontFamily;
+  $("fontSize").value = notesPrefs.fontSize;
+  $("boldToggle").classList.toggle("active", notesPrefs.bold);
+}
+
+function formatNoteDate(ts) {
+  return new Date(ts).toLocaleString(undefined,
+    { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+// Build the gallery: a "+" new card, then a card per saved note (newest first).
+function renderGallery() {
+  const gallery = $("gallery");
+  gallery.innerHTML = "";
+
+  const newCard = document.createElement("div");
+  newCard.className = "card new-card";
+  newCard.innerHTML = `<div class="plus">+</div><div>New note</div>`;
+  newCard.addEventListener("click", () => openEditor(null)); // straight to a new note
+  gallery.appendChild(newCard);
+
+  [...notes].sort((a, b) => b.lastEdited - a.lastEdited).forEach((note) => {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+      <button class="card-del" title="Delete">🗑</button>
+      <div class="card-name">${escapeHtml(note.name)}</div>
+      <div class="card-preview">${escapeHtml((note.content || "").slice(0, 90))}</div>
+      <div class="card-date">${formatNoteDate(note.lastEdited)}</div>`;
+    card.addEventListener("click", () => openEditor(note.id)); // reopen the note
+    card.querySelector(".card-del").addEventListener("click", (e) => {
+      e.stopPropagation();
+      // (#2) Use the custom popup; only delete if the user clicks Yes.
+      askConfirm("Delete this note?", () => {
+        notes = notes.filter((n) => n.id !== note.id);
+        saveNotesList();
+        renderGallery();
+      });
+    });
+    gallery.appendChild(card);
+  });
+}
+
+function showLibrary() { renderGallery(); nvShow("library"); }
+
+// Open the editor for an existing note (id) or a fresh one (id = null).
+function openEditor(id) {
+  currentNoteId = id;
+  const note = notes.find((n) => n.id === id);
+  $("noteName").value = note ? note.name : "";
+  $("noteContent").value = note ? note.content : "";
+  $("savedTag").textContent = "";
+  applyEditorPrefs();
+  nvShow("editor");
+  $("noteContent").focus();
+}
+
+// Create or update the current note from the inputs.
+function saveCurrentNote(showTag) {
+  const name = $("noteName").value.trim() || "Untitled"; // default name
+  const content = $("noteContent").value;
+  let note = notes.find((n) => n.id === currentNoteId);
+  if (note) {
+    note.name = name; note.content = content; note.lastEdited = Date.now();
+  } else {
+    note = { id: Date.now(), name, type: "text", content, lastEdited: Date.now() };
+    notes.push(note);
+    currentNoteId = note.id;
+  }
+  saveNotesList();
+  if (showTag) {
+    $("savedTag").textContent = "Saved ✓";
+    setTimeout(() => { $("savedTag").textContent = ""; }, 1500);
+  }
+}
+function scheduleNoteAutosave() {
+  clearTimeout(notesAutosaveTimer);
+  notesAutosaveTimer = setTimeout(() => saveCurrentNote(false), NOTES_AUTOSAVE_MS);
+}
+
+// Open / close the whole Notes view (the timer keeps running behind it).
+function openNotes() {
+  applyNotesUITheme();
+  updateRunningBadge();
+  // Land on the library if notes exist, else go straight to a fresh typed note.
+  if (notes.length) showLibrary(); else openEditor(null);
+  $("notesView").classList.add("open");
+}
+function closeNotes() {
+  // (#4) If we're in real OS fullscreen, exit it first — otherwise the page
+  // behind stays non-interactive. Also clear the CSS fallback + reset the label.
+  if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen();
+  $("notesView").classList.remove("fs-fallback");
+  $("fullscreenBtn").textContent = "⛶ Fullscreen";
+  $("notesView").classList.remove("open");
+}
+
+// ---- Notes wiring ----
+$("notesBtn").addEventListener("click", openNotes);
+$("notesClose").addEventListener("click", closeNotes);
+$("editorBack").addEventListener("click", () => { saveCurrentNote(false); showLibrary(); });
+$("saveNote").addEventListener("click", () => { saveCurrentNote(true); showLibrary(); });
+$("noteName").addEventListener("input", scheduleNoteAutosave);
+$("noteContent").addEventListener("input", scheduleNoteAutosave);
+$("fontFamily").addEventListener("change", (e) => { notesPrefs.fontFamily = e.target.value; saveNotesPrefs(); applyEditorPrefs(); });
+$("fontSize").addEventListener("change", (e) => { notesPrefs.fontSize = e.target.value; saveNotesPrefs(); applyEditorPrefs(); });
+$("boldToggle").addEventListener("click", () => { notesPrefs.bold = !notesPrefs.bold; saveNotesPrefs(); applyEditorPrefs(); });
+$("uiThemeToggle").addEventListener("click", () => { notesPrefs.dark = !notesPrefs.dark; saveNotesPrefs(); applyNotesUITheme(); });
+
+
+/* ============================================================
+   FULLSCREEN writing area
+   We fullscreen the WHOLE notes view (#notesView) — not just the editor — so
+   the top bar (incl. "Back to timer") stays INSIDE the fullscreen element and
+   therefore clickable. (With the Fullscreen API, only the fullscreen element
+   and its children are interactive.) Falls back to a CSS class if blocked.
+   ============================================================ */
+function toggleFullscreen() {
+  const el = $("notesView"); // the whole notes view (topbar + editor inside it)
+  const isFs = document.fullscreenElement === el || el.classList.contains("fs-fallback");
+  if (isFs) {
+    if (document.fullscreenElement === el && document.exitFullscreen) document.exitFullscreen();
+    el.classList.remove("fs-fallback");
+    $("fullscreenBtn").textContent = "⛶ Fullscreen";
+  } else {
+    if (el.requestFullscreen) el.requestFullscreen().catch(() => el.classList.add("fs-fallback"));
+    else el.classList.add("fs-fallback");
+    $("fullscreenBtn").textContent = "✕ Exit fullscreen";
+  }
+}
+$("fullscreenBtn").addEventListener("click", toggleFullscreen);
+// If the user leaves fullscreen with Esc, fix the button label.
+document.addEventListener("fullscreenchange", () => {
+  if (!document.fullscreenElement && !$("notesView").classList.contains("fs-fallback")) {
+    $("fullscreenBtn").textContent = "⛶ Fullscreen";
+  }
+});
+
+
+/* ============================================================
+   CUSTOM BACKGROUND UPLOADS (#2) — home page + notes page
+   We downscale + compress the image on a <canvas> before saving, so big
+   photos don't overflow localStorage.
+   ============================================================ */
+// >>> Adjust the max upload image size / quality here. <<<
+const MAX_IMAGE_WIDTH = 1600;       // shrink wider images down to this width
+const IMAGE_QUALITY   = 0.8;        // JPEG quality (0..1)
+const MAX_STORED_CHARS = 2500000;   // ~2.5 MB cap to protect localStorage
+
+// Read a file, draw it smaller onto a canvas, return a compressed JPEG dataURL.
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, MAX_IMAGE_WIDTH / img.width); // never upscale
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", IMAGE_QUALITY));
+      };
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// Shared helper: process an upload, then hand the dataURL to onReady. Handles
+// the "too big" and "couldn't load" cases with friendly messages.
+async function handleImageUpload(fileInput, onReady) {
+  const file = fileInput.files[0];
+  if (!file) return;
+  try {
+    const dataUrl = await compressImage(file);
+    if (dataUrl.length > MAX_STORED_CHARS) {
+      alert("That image is still too large after shrinking. Please pick a smaller image.");
+    } else {
+      onReady(dataUrl);
+    }
+  } catch (err) {
+    alert("Sorry, that image couldn't be loaded. Try a different file.");
+  }
+  fileInput.value = ""; // reset so the same file can be chosen again
+}
+
+// --- Home background upload (in Settings) ---
+$("homeBgUpload").addEventListener("click", () => $("homeBgFile").click());
+$("homeBgFile").addEventListener("change", () => {
+  handleImageUpload($("homeBgFile"), (dataUrl) => {
+    const prev = settings.homeBgCustom;
+    settings.homeBgCustom = dataUrl;
+    try { saveSettings(); } catch (e) {        // storage full?
+      settings.homeBgCustom = prev;
+      alert("Couldn't save — not enough storage. Try a smaller image.");
+      return;
+    }
+    applyBackground();
+  });
+});
+$("homeBgReset").addEventListener("click", () => {
+  settings.homeBgCustom = "";
+  saveSettings();
+  applyBackground();
+});
+
+// (Notes background upload was removed along with the notes-background feature.)
+
+
+// --- Initial page load ---
+function init() {
+  loadFromStorage();
+  sessionCountEl.textContent = state.focusCount;
+  switchMode("focus");        // sets clock + theme for focus
+  applyTheme();
+  renderTime();
+  renderTasks();
+
+  // New features: restore saved background + alarm volume.
+  detectBackgrounds(); // auto-finds images/background1.jpg, background2.jpg, ...
+  $("alertVolume").value = settings.alertVolume; // alarm volume slider
+  applyFonts();           // restore the per-element font choices
+  applyProgressColor();   // restore the countdown line color
+  applyUserName();        // show the saved name on the home page
+  applyAppTheme();        // (#3) restore saved dark/light appearance
+  loadXp();               // load monthly XP (migrating from old settings.xp)
+  checkMonthlyReset();    // wipe XP if a new month has started
+  renderXp();             // draw the XP bar + level
+}
+init();
+
+
+/* ============================================================
+   9. INTRO / SPLASH TIMING
+   The CSS animations run on their own; here we just decide WHEN to
+   fade the overlay out, handle reduced-motion, and (optionally) skip
+   the intro after the first time in a browser session.
+   ============================================================ */
+
+// ===== TOGGLE ME =====
+// false = play the FULL intro on every load/reload (good while testing).
+// true  = play it only ONCE per browser session (remembers via sessionStorage).
+// Currently FALSE so the intro always plays — flip to true when you're done.
+const PLAY_INTRO_ONCE = false;
+
+const splash = $("splash");
+const introPanel = document.querySelector(".intro-panel");
+const introStar  = document.querySelector(".splash-star");
+const introName  = document.querySelector(".splash-name");
+
+// Step: begin the exit. Reveal the app and fade the overlay/panel out.
+function revealApp() {
+  document.body.classList.remove("intro-playing"); // app fades in (CSS)
+  introPanel.classList.remove("show");
+  introPanel.classList.add("hide");                // panel fades + scales out
+  splash.classList.add("hide");                    // dim fades away
+}
+
+// Step: fully remove the overlay so it can never block clicks.
+function endIntro() {
+  splash.classList.add("gone"); // display:none + pointer-events:none
+}
+
+function runIntro() {
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Trigger the entrance AFTER the browser has painted the hidden start state,
+  // otherwise it jumps straight to the end with no transition. TWO nested
+  // requestAnimationFrame calls guarantee at least one paint happens first.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      introPanel.classList.add("show");
+      introStar.classList.add("show");
+    });
+  });
+
+  if (reduce) {
+    // Reduced motion: show the name at once, then a quick fade out.
+    introName.classList.add("show");
+    setTimeout(revealApp, 600);
+    setTimeout(endIntro, 900);
+    return;
+  }
+
+  // Normal 2.5s timeline (rescaled from 3.5s). Distinct times on different
+  // elements, so they never fight each other:
+  //   0.0s   panel + star fade/scale in (0.65s), star begins its slow spin
+  //   0.95s  "Pomora" fades in (0.6s)
+  //   1.55-2.1s  holds, fully visible
+  //   2.1s   exit begins (panel + dim fade out, app fades in over 0.4s)
+  //   2.5s   overlay removed (total = exactly 2.5s)
+  setTimeout(() => introName.classList.add("show"), 950); // name fades in
+  setTimeout(revealApp, 2100);                            // exit begins at 2.1s
+  setTimeout(endIntro, 2500);                             // overlay gone at 2.5s
+}
+
+// Play the intro, or skip straight to the app if already seen this session.
+// (With PLAY_INTRO_ONCE = false, this condition is always false, so the full
+//  intro plays every load.)
+if (PLAY_INTRO_ONCE && sessionStorage.getItem("pomora.introSeen")) {
+  document.body.classList.remove("intro-playing"); // show the app immediately
+  splash.classList.add("gone");                    // remove the overlay
+} else {
+  sessionStorage.setItem("pomora.introSeen", "1");
+  runIntro();
+}
+
+
+/* ============================================================
+   10. FIREBASE — AUTH + FIRESTORE SYNC
+   ============================================================ */
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAkNjFE67oOTxcYFV0egaDtDnve1iWzIgc",
+  authDomain: "j138910d.firebaseapp.com",
+  projectId: "j138910d",
+  storageBucket: "j138910d.firebasestorage.app",
+  messagingSenderId: "874168296127",
+  appId: "1:874168296127:web:94d770122017304eb21c0a",
+  measurementId: "G-FY3JKGWNF7"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+let currentUser = null;
+let unsubFirestore = null; // listener handle
+
+// ---- Firestore read/write helpers ----------------------------------------
+
+function userDoc() {
+  if (!currentUser) return null;
+  return db.collection("users").doc(currentUser.uid);
+}
+
+function cloudSave() {
+  const doc = userDoc();
+  if (!doc) return;
+  doc.set({
+    settings: JSON.parse(JSON.stringify(settings)),
+    tasks: JSON.parse(JSON.stringify(tasks)),
+    activeTaskId: activeTaskId,
+    history: JSON.parse(JSON.stringify(history)),
+    xp: xp,
+    xpMonth: xpMonth,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  }, { merge: true }).catch(() => {});
+}
+
+function cloudLoad(data) {
+  if (data.settings) { settings = Object.assign(settings, data.settings); saveSettings(); }
+  if (data.tasks) { tasks = data.tasks; activeTaskId = data.activeTaskId || null; saveTasks(); }
+  if (data.history) { history = data.history; saveHistory(); }
+  if (typeof data.xp === "number") { xp = data.xp; xpMonth = data.xpMonth || ""; saveXp(); }
+  // Re-apply everything to the UI
+  applyTheme(); applyFonts(); applyProgressColor(); applyUserName(); applyAppTheme();
+  renderXp(); renderTasks();
+  if (!state.running) {
+    state.remaining = settings.durations[state.mode] * 60;
+    renderTime();
+  }
+  detectBackgrounds();
+}
+
+// Listen for real-time changes from other devices
+function startCloudListener() {
+  if (unsubFirestore) unsubFirestore();
+  const doc = userDoc();
+  if (!doc) return;
+  unsubFirestore = doc.onSnapshot((snap) => {
+    if (snap.exists) cloudLoad(snap.data());
+  });
+}
+
+// ---- Debounced cloud save (so rapid changes don't spam Firestore) --------
+let cloudSaveTimer = null;
+function debouncedCloudSave() {
+  clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = setTimeout(cloudSave, 1500);
+}
+
+// Patch the existing save functions to also push to Firestore
+const _origSaveSettings = saveSettings;
+saveSettings = function() { _origSaveSettings(); debouncedCloudSave(); };
+const _origSaveTasks = saveTasks;
+saveTasks = function() { _origSaveTasks(); debouncedCloudSave(); };
+const _origSaveHistory = saveHistory;
+saveHistory = function() { _origSaveHistory(); debouncedCloudSave(); };
+const _origSaveXp = saveXp;
+saveXp = function() { _origSaveXp(); debouncedCloudSave(); };
+
+// ---- Auth state listener -------------------------------------------------
+
+auth.onAuthStateChanged(async (user) => {
+  currentUser = user;
+  updateAuthUI();
+  if (user) {
+    // Load cloud data on sign-in
+    try {
+      const snap = await userDoc().get();
+      if (snap.exists) {
+        cloudLoad(snap.data());
+      } else {
+        cloudSave(); // first sign-in: push local data up
+      }
+    } catch (e) {}
+    startCloudListener();
+  } else {
+    if (unsubFirestore) { unsubFirestore(); unsubFirestore = null; }
+  }
+});
+
+// ---- Auth UI (rewire the existing Account tab) ---------------------------
+
+function updateAuthUI() {
+  if (!currentUser) {
+    // Show the sign-in form
+    $("authEmail").parentElement.style.display = "";
+    $("authPassword").parentElement.style.display = "";
+    $("authSubmit").style.display = "";
+    $("googleBtn").style.display = "";
+    document.querySelector(".auth-divider").style.display = "";
+    document.querySelector(".auth-switch").style.display = "";
+    // Remove any "signed in as" message
+    const existing = document.getElementById("signedInMsg");
+    if (existing) existing.remove();
+  } else {
+    // Hide the form, show "signed in as"
+    $("authEmail").parentElement.style.display = "none";
+    $("authPassword").parentElement.style.display = "none";
+    $("authSubmit").style.display = "none";
+    $("googleBtn").style.display = "none";
+    document.querySelector(".auth-divider").style.display = "none";
+    document.querySelector(".auth-switch").style.display = "none";
+    // Show signed-in message + sign-out button
+    let msg = document.getElementById("signedInMsg");
+    if (!msg) {
+      msg = document.createElement("div");
+      msg.id = "signedInMsg";
+      msg.style.cssText = "text-align:center; padding:20px 0;";
+      $("tab-account").prepend(msg);
+    }
+    msg.innerHTML = `
+      <p style="font-size:1.05rem; font-weight:600; color:#222; margin-bottom:6px;">
+        Signed in as
+      </p>
+      <p style="color:#555; margin-bottom:16px;">${escapeHtml(currentUser.email || currentUser.displayName || "User")}</p>
+      <button class="auth-primary" id="signOutBtn" style="background:#e2574c;">Sign out</button>
+    `;
+    document.getElementById("signOutBtn").addEventListener("click", () => {
+      auth.signOut();
+    });
+  }
+}
+
+// Rewire the auth buttons to use real Firebase Auth
+$("authSubmit").removeEventListener("click", () => {}); // can't remove anonymous, so we override:
+$("authSubmit").onclick = async () => {
+  const email = $("authEmail").value.trim();
+  const pass = $("authPassword").value;
+  if (!email || !pass) { alert("Please enter email and password."); return; }
+  try {
+    if (isSignUp) {
+      await auth.createUserWithEmailAndPassword(email, pass);
+    } else {
+      await auth.signInWithEmailAndPassword(email, pass);
+    }
+    alert((isSignUp ? "Account created" : "Signed in") + " successfully!");
+  } catch (e) {
+    alert(e.message);
+  }
+};
+
+$("googleBtn").onclick = async () => {
+  try {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    await auth.signInWithPopup(provider);
+    alert("Signed in with Google!");
+  } catch (e) {
+    alert(e.message);
+  }
+};
+
+// ---- LEADERBOARD -----------------------------------------------------------
+
+// Write public stats to a separate "leaderboard" collection on every cloud save.
+const _origCloudSave = cloudSave;
+cloudSave = function() {
+  _origCloudSave();
+  if (!currentUser) return;
+  // Compute total minutes from history
+  let totalMin = 0, totalSes = 0;
+  for (const day in history) { totalMin += history[day].minutes || 0; totalSes += history[day].sessions || 0; }
+  const level = Math.min(Math.floor(xp / XP_PER_LEVEL) + 1, MAX_LEVEL);
+  db.collection("leaderboard").doc(currentUser.uid).set({
+    name: settings.userName || currentUser.displayName || currentUser.email?.split("@")[0] || "Anonymous",
+    level, xp: Math.floor(xp), totalMinutes: totalMin, totalSessions: totalSes,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  }, { merge: true }).catch(() => {});
+};
+
+// Fetch & render leaderboard when the tab is opened.
+let lbLoaded = false;
+function loadLeaderboard() {
+  if (lbLoaded) return;
+  lbLoaded = true;
+  db.collection("leaderboard").orderBy("xp", "desc").limit(50).get().then(snap => {
+    const el = $("leaderboardList");
+    if (snap.empty) { el.innerHTML = '<p style="color:#aaa;text-align:center;padding:24px 0;">No data yet. Complete some focus sessions!</p>'; return; }
+    let html = "";
+    let rank = 0;
+    snap.forEach(doc => {
+      rank++;
+      const d = doc.data();
+      const hrs = (d.totalMinutes / 60).toFixed(1);
+      const isYou = currentUser && doc.id === currentUser.uid;
+      html += `<div class="lb-row${isYou ? " lb-you" : ""}">
+        <div class="lb-rank">${rank}</div>
+        <div class="lb-name">${escapeHtml(d.name)}${isYou ? " (you)" : ""}</div>
+        <div class="lb-stats">
+          <span>Lv ${d.level}</span>
+          <span>${hrs}h</span>
+          <span>${d.totalSessions || 0} ses</span>
+        </div>
+      </div>`;
+    });
+    el.innerHTML = html;
+  }).catch(() => {
+    $("leaderboardList").innerHTML = '<p style="color:#c44;text-align:center;padding:24px 0;">Could not load leaderboard.</p>';
+  });
+}
+
+// Refresh leaderboard when its tab is clicked.
+document.querySelector('[data-tab="leaderboard"]').addEventListener("click", () => { lbLoaded = false; loadLeaderboard(); });
+
+/* ============================================================
+   GOOGLE CALENDAR + GOOGLE TASKS INTEGRATION
+   Uses the Google Identity Services (GIS) token model to get an
+   OAuth2 access token with Calendar + Tasks scopes. The token is
+   kept in memory (and sessionStorage for tab refreshes). All API
+   calls are plain fetch() to the REST endpoints.
+   ============================================================ */
+
+const GCAL_SCOPES = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks";
+const GOOGLE_CLIENT_ID = "874168296127-87a2deipt2vid32j43ekqa5inv11ld8r.apps.googleusercontent.com";
+
+let gAccessToken = sessionStorage.getItem("pomora.gToken") || null;
+let gTokenExpiry = Number(sessionStorage.getItem("pomora.gTokenExp")) || 0;
+
+// ---- settings persistence for integration toggles ----
+let integrationSettings = JSON.parse(localStorage.getItem("pomora.integrations") || '{"gcal":false,"gtasks":false}');
+
+function saveIntegrationSettings() {
+  localStorage.setItem("pomora.integrations", JSON.stringify(integrationSettings));
+}
+
+// ---- UI state ----
+function updateIntegrationsUI() {
+  const signedInWithGoogle = currentUser && currentUser.providerData.some(p => p.providerId === "google.com");
+  $("integrationsAuth").style.display = signedInWithGoogle ? "none" : "block";
+  $("integrationsPanel").style.display = signedInWithGoogle ? "block" : "none";
+  $("gcalToggle").checked = integrationSettings.gcal;
+  $("gtasksToggle").checked = integrationSettings.gtasks;
+  $("syncTasksNowBtn").style.display = integrationSettings.gtasks ? "" : "none";
+}
+
+document.querySelector('[data-tab="integrations"]').addEventListener("click", updateIntegrationsUI);
+
+// ---- Google OAuth token via GIS ----
+function loadGIS() {
+  if (document.getElementById("gisScript")) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.id = "gisScript";
+    s.src = "https://accounts.google.com/gsi/client";
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+async function getGoogleToken() {
+  if (gAccessToken && Date.now() < gTokenExpiry) return gAccessToken;
+  await loadGIS();
+
+  // Get the actual client ID from Firebase config
+  // The OAuth client ID is the web client ID from Firebase Auth
+  const clientId = await fetchWebClientId();
+
+  return new Promise((resolve, reject) => {
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: GCAL_SCOPES,
+      callback: (resp) => {
+        if (resp.error) { reject(resp.error); return; }
+        gAccessToken = resp.access_token;
+        gTokenExpiry = Date.now() + (resp.expires_in * 1000) - 60000;
+        sessionStorage.setItem("pomora.gToken", gAccessToken);
+        sessionStorage.setItem("pomora.gTokenExp", String(gTokenExpiry));
+        resolve(gAccessToken);
+      },
+    });
+    client.requestAccessToken();
+  });
+}
+
+// Fetch the web client ID from Firebase Auth settings
+async function fetchWebClientId() {
+  // Use the Firebase project's OAuth 2.0 client ID.
+  // This is the auto-generated web client from Firebase Auth.
+  try {
+    const resp = await fetch(`https://www.googleapis.com/identitytoolkit/v3/relyingparty/getProjectConfig?key=${firebaseConfig.apiKey}`);
+    const data = await resp.json();
+    if (data.authorizedDomains) {
+      // The client ID comes from the sign-in providers
+      const googleProvider = currentUser?.providerData?.find(p => p.providerId === "google.com");
+      if (googleProvider) {
+        // For Firebase projects, the web client ID follows this pattern
+        return firebaseConfig.messagingSenderId + "-" + firebaseConfig.projectId.replace(/-/g,"") + ".apps.googleusercontent.com";
+      }
+    }
+  } catch(e) {}
+  // Fallback: use the standard Firebase auto-generated web client ID format
+  // Users may need to replace this with their actual OAuth client ID
+  return GOOGLE_CLIENT_ID;
+}
+
+// ---- Google Calendar: log a focus session ----
+async function logFocusToCalendar(durationMinutes) {
+  if (!integrationSettings.gcal || !currentUser) return;
+  const signedInWithGoogle = currentUser.providerData.some(p => p.providerId === "google.com");
+  if (!signedInWithGoogle) return;
+
+  try {
+    const token = await getGoogleToken();
+    const end = new Date();
+    const start = new Date(end.getTime() - durationMinutes * 60000);
+
+    const event = {
+      summary: "Pomora Focus Session",
+      description: `${durationMinutes}-minute focus session completed in Pomora.`,
+      start: { dateTime: start.toISOString() },
+      end: { dateTime: end.toISOString() },
+      colorId: "2",
+    };
+
+    const resp = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify(event),
+    });
+
+    if (resp.ok) {
+      $("gcalStatus").textContent = "Last session logged to calendar";
+      $("gcalStatus").style.display = "";
+      setTimeout(() => { $("gcalStatus").style.display = "none"; }, 4000);
+    }
+  } catch (e) {
+    console.warn("Calendar sync failed:", e);
+  }
+}
+
+// ---- Google Tasks: sync Pomora tasks ----
+let gTaskListId = null;
+
+async function getOrCreateTaskList(token) {
+  // Check if "Pomora" task list exists
+  const resp = await fetch("https://www.googleapis.com/tasks/v1/users/@me/lists", {
+    headers: { Authorization: "Bearer " + token },
+  });
+  const data = await resp.json();
+  const existing = (data.items || []).find(l => l.title === "Pomora");
+  if (existing) { gTaskListId = existing.id; return gTaskListId; }
+
+  // Create it
+  const create = await fetch("https://www.googleapis.com/tasks/v1/users/@me/lists", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+    body: JSON.stringify({ title: "Pomora" }),
+  });
+  const newList = await create.json();
+  gTaskListId = newList.id;
+  return gTaskListId;
+}
+
+async function syncTasksToGoogle() {
+  if (!integrationSettings.gtasks || !currentUser) return;
+  const signedInWithGoogle = currentUser.providerData.some(p => p.providerId === "google.com");
+  if (!signedInWithGoogle) return;
+
+  try {
+    const token = await getGoogleToken();
+    const listId = await getOrCreateTaskList(token);
+
+    // Get existing tasks in the Pomora list
+    const resp = await fetch(`https://www.googleapis.com/tasks/v1/lists/${listId}/tasks?showCompleted=true&maxResults=100`, {
+      headers: { Authorization: "Bearer " + token },
+    });
+    const data = await resp.json();
+    const existingTasks = data.items || [];
+
+    // Build a map of existing tasks by title for matching
+    const existingMap = {};
+    existingTasks.forEach(t => { existingMap[t.title] = t; });
+
+    // Sync each Pomora task
+    for (const task of tasks) {
+      const gStatus = task.done ? "completed" : "needsAction";
+      const notes = `Est: ${task.est} pomodoros | Done: ${task.completed}`;
+
+      if (existingMap[task.name]) {
+        // Update existing
+        const gTask = existingMap[task.name];
+        if (gTask.status !== gStatus || gTask.notes !== notes) {
+          await fetch(`https://www.googleapis.com/tasks/v1/lists/${listId}/tasks/${gTask.id}`, {
+            method: "PATCH",
+            headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+            body: JSON.stringify({ status: gStatus, notes }),
+          });
+        }
+      } else {
+        // Create new
+        await fetch(`https://www.googleapis.com/tasks/v1/lists/${listId}/tasks`, {
+          method: "POST",
+          headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+          body: JSON.stringify({ title: task.name, status: gStatus, notes }),
+        });
+      }
+    }
+
+    $("gtasksStatus").textContent = `Synced ${tasks.length} task${tasks.length !== 1 ? "s" : ""} to Google Tasks`;
+    $("gtasksStatus").style.display = "";
+    setTimeout(() => { $("gtasksStatus").style.display = "none"; }, 4000);
+  } catch (e) {
+    console.warn("Tasks sync failed:", e);
+  }
+}
+
+// ---- Wire up toggles ----
+$("gcalToggle").addEventListener("change", (e) => {
+  integrationSettings.gcal = e.target.checked;
+  saveIntegrationSettings();
+  if (e.target.checked) {
+    getGoogleToken().catch(() => {
+      integrationSettings.gcal = false;
+      $("gcalToggle").checked = false;
+      saveIntegrationSettings();
+      alert("Could not get Google permissions. Try the Reconnect button.");
+    });
+  }
+});
+
+$("gtasksToggle").addEventListener("change", (e) => {
+  integrationSettings.gtasks = e.target.checked;
+  saveIntegrationSettings();
+  $("syncTasksNowBtn").style.display = e.target.checked ? "" : "none";
+  if (e.target.checked) {
+    getGoogleToken().then(() => syncTasksToGoogle()).catch(() => {
+      integrationSettings.gtasks = false;
+      $("gtasksToggle").checked = false;
+      saveIntegrationSettings();
+      alert("Could not get Google permissions. Try the Reconnect button.");
+    });
+  }
+});
+
+$("syncTasksNowBtn").addEventListener("click", () => {
+  $("syncTasksNowBtn").textContent = "Syncing...";
+  syncTasksToGoogle().then(() => {
+    $("syncTasksNowBtn").textContent = "Sync tasks now";
+  });
+});
+
+$("reconnectGoogleBtn").addEventListener("click", async () => {
+  gAccessToken = null;
+  gTokenExpiry = 0;
+  sessionStorage.removeItem("pomora.gToken");
+  sessionStorage.removeItem("pomora.gTokenExp");
+  try {
+    await getGoogleToken();
+    alert("Google permissions refreshed!");
+  } catch (e) {
+    alert("Could not connect: " + e);
+  }
+});
+
+// ---- Hook into existing flows via MutationObserver on session count ----
+
+// Log focus sessions to Google Calendar when the session counter increments.
+let _lastSessionCount = 0;
+const _sessionObs = new MutationObserver(() => {
+  const count = parseInt(sessionCountEl.textContent) || 0;
+  if (count > _lastSessionCount && _lastSessionCount > 0) {
+    logFocusToCalendar(settings.durations.focus);
+  }
+  _lastSessionCount = count;
+});
+_sessionObs.observe(sessionCountEl, { childList: true, characterData: true, subtree: true });
+
+// Sync tasks to Google Tasks when the task list DOM changes (debounced).
+let _gtasksSyncTimer = null;
+const _taskObs = new MutationObserver(() => {
+  if (integrationSettings.gtasks && currentUser) {
+    clearTimeout(_gtasksSyncTimer);
+    _gtasksSyncTimer = setTimeout(syncTasksToGoogle, 3000);
+  }
+});
+_taskObs.observe(taskListEl, { childList: true, subtree: true });
+
+/* ============================================================
+   NOTION INTEGRATION
+   ============================================================ */
+
+let notionCfg = JSON.parse(localStorage.getItem("pomora.notion") || '{"token":"","dbId":"","proxy":"","enabled":false}');
+
+function saveNotionCfg() {
+  localStorage.setItem("pomora.notion", JSON.stringify(notionCfg));
+}
+
+function parseNotionDbId(input) {
+  const trimmed = (input || "").trim();
+  const urlMatch = trimmed.match(/([a-f0-9]{32})/);
+  if (urlMatch) return urlMatch[1];
+  return trimmed.replace(/-/g, "");
+}
+
+async function notionFetch(endpoint, body) {
+  if (!notionCfg.proxy || !notionCfg.token) return null;
+  const resp = await fetch(notionCfg.proxy, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      endpoint,
+      token: notionCfg.token,
+      body,
+    }),
+  });
+  if (!resp.ok) throw new Error("Notion API error: " + resp.status);
+  return resp.json();
+}
+
+async function logSessionToNotion(minutes) {
+  if (!notionCfg.enabled || !notionCfg.dbId) return;
+  try {
+    const now = new Date();
+    const start = new Date(now.getTime() - minutes * 60000);
+    await notionFetch("/v1/pages", {
+      parent: { database_id: notionCfg.dbId },
+      properties: {
+        Name: { title: [{ text: { content: "Focus Session" } }] },
+        Duration: { number: minutes },
+        Date: { date: { start: start.toISOString(), end: now.toISOString() } },
+        Type: { select: { name: "Focus" } },
+        Status: { select: { name: "Completed" } },
+      },
+    });
+  } catch (e) {
+    console.warn("Notion session log failed:", e);
+  }
+}
+
+async function syncTasksToNotion() {
+  if (!notionCfg.enabled || !notionCfg.dbId) return;
+  try {
+    for (const task of tasks) {
+      await notionFetch("/v1/pages", {
+        parent: { database_id: notionCfg.dbId },
+        properties: {
+          Name: { title: [{ text: { content: task.name } }] },
+          Type: { select: { name: "Task" } },
+          Status: { select: { name: task.done ? "Completed" : "In Progress" } },
+          Duration: { number: task.est },
+        },
+      });
+    }
+  } catch (e) {
+    console.warn("Notion task sync failed:", e);
+  }
+}
+
+// Notion UI wiring
+$("notionToggle").addEventListener("change", (e) => {
+  notionCfg.enabled = e.target.checked;
+  $("notionConfig").style.display = e.target.checked ? "" : "none";
+  saveNotionCfg();
+});
+
+$("notionSaveBtn").addEventListener("click", async () => {
+  notionCfg.token = $("notionToken").value.trim();
+  notionCfg.dbId = parseNotionDbId($("notionDbId").value);
+  notionCfg.proxy = $("notionProxy").value.trim().replace(/\/$/, "");
+  saveNotionCfg();
+
+  const status = $("notionStatus");
+  status.style.display = "";
+  status.style.color = "#888";
+  status.textContent = "Testing connection...";
+
+  try {
+    const result = await notionFetch("/v1/databases/" + notionCfg.dbId, null);
+    if (result && result.id) {
+      status.style.color = "#4caf50";
+      status.textContent = "Connected to: " + (result.title?.[0]?.plain_text || "database");
+    } else {
+      status.style.color = "#c44";
+      status.textContent = "Could not reach database. Check your token and ID.";
+    }
+  } catch (e) {
+    status.style.color = "#c44";
+    status.textContent = "Connection failed: " + e.message;
+  }
+});
+
+// Load saved Notion config into UI
+if (notionCfg.token) $("notionToken").value = notionCfg.token;
+if (notionCfg.dbId) $("notionDbId").value = notionCfg.dbId;
+if (notionCfg.proxy) $("notionProxy").value = notionCfg.proxy;
+$("notionToggle").checked = notionCfg.enabled;
+$("notionConfig").style.display = notionCfg.enabled ? "" : "none";
+
+// Hook Notion into focus session completion (same observer as Google Calendar)
+const _notionSessionObs = new MutationObserver(() => {
+  const count = parseInt(sessionCountEl.textContent) || 0;
+  if (count > _lastSessionCount && notionCfg.enabled) {
+    logSessionToNotion(settings.durations.focus);
+  }
+});
+_notionSessionObs.observe(sessionCountEl, { childList: true, characterData: true, subtree: true });
+
+</script>
+</body>
+</html>

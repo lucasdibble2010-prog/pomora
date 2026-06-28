@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contact — Pomora</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: #0f0f1a;
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .back {
+      position: absolute;
+      top: 24px;
+      left: 24px;
+      color: rgba(255,255,255,0.5);
+      text-decoration: none;
+      font-size: 0.95rem;
+      transition: color 0.2s;
+    }
+    .back:hover { color: #fff; }
+    .contact-card {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 20px;
+      padding: 48px 40px;
+      max-width: 440px;
+      width: 100%;
+      text-align: center;
+    }
+    .contact-card h1 {
+      font-size: 1.8rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .contact-card .subtitle {
+      color: rgba(255,255,255,0.5);
+      font-size: 0.95rem;
+      margin-bottom: 36px;
+      line-height: 1.5;
+    }
+    .contact-item {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 16px 20px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      margin-bottom: 12px;
+      text-decoration: none;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    .contact-item:hover {
+      background: rgba(255,255,255,0.07);
+      border-color: rgba(255,255,255,0.12);
+    }
+    .contact-item .icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      font-size: 1.2rem;
+      flex-shrink: 0;
+    }
+    .contact-item.email .icon {
+      background: rgba(66,133,244,0.15);
+    }
+    .contact-item .details {
+      text-align: left;
+    }
+    .contact-item .label {
+      font-size: 0.8rem;
+      color: rgba(255,255,255,0.4);
+      margin-bottom: 2px;
+    }
+    .contact-item .value {
+      font-size: 1rem;
+      font-weight: 500;
+      color: #4a9eff;
+    }
+    .response-note {
+      margin-top: 24px;
+      color: rgba(255,255,255,0.35);
+      font-size: 0.82rem;
+    }
+  </style>
+</head>
+<body>
+  <a href="index.html" class="back">← Back to Pomora</a>
+  <div class="contact-card">
+    <h1>Get in Touch</h1>
+    <p class="subtitle">Have a question, suggestion, or just want to say hi? We'd love to hear from you.</p>
+
+    <a href="mailto:nowiess00@gmail.com" class="contact-item email">
+      <div class="icon">✉️</div>
+      <div class="details">
+        <div class="label">Email</div>
+        <div class="value">nowiess00@gmail.com</div>
+      </div>
+    </a>
+
+    <p class="response-note">We'll try to get back to you within 48 hours.</p>
+  </div>
+</body>
+</html>
