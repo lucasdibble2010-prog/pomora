@@ -574,26 +574,7 @@
      A blurred glowing circle that follows the cursor. pointer-events:none is
      CRUCIAL — it lets clicks pass straight through to the buttons underneath.
      ======================================================================= */
-  #halo {
-    position: fixed; top: 0; left: 0;
-    width: 300px; height: 300px;
-    border-radius: 50%;
-    pointer-events: none;      /* never blocks clicks */
-    z-index: 4;                /* above background, below modals */
-    /* soft radial light, fading to transparent at the edges */
-    background: radial-gradient(circle,
-                rgba(255, 255, 255, 0.30),
-                rgba(255, 255, 255, 0.10) 40%,
-                rgba(255, 255, 255, 0) 70%);
-    filter: blur(12px);
-    /* JS positions it with transform; this just centers it on the cursor */
-    transform: translate(-9999px, -9999px); /* hidden until first mouse move */
-    will-change: transform;
-    opacity: 1;
-    transition: opacity 0.4s ease; /* smooth hide/show when the timer runs */
-  }
-  /* Touch devices have no cursor, so hide the halo there */
-  @media (hover: none) { #halo { display: none; } }
+  #halo { display: none; }
 
   /* The ambient sound player was removed — Spotify is now the sound source.
      .volume-row is still used by the ALARM volume slider in the Alerts tab. */
