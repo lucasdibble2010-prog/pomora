@@ -2074,6 +2074,7 @@ async function detectBackgrounds() {
   }
   // Make sure the saved index still points at a real image.
   if (settings.bgIndex >= backgrounds.length) settings.bgIndex = 0;
+  preloadAllBackgrounds();
   applyBackground();
 }
 
@@ -2096,14 +2097,14 @@ function applyBackground() {
     return;
   }
   const url = backgrounds[settings.bgIndex];
-  const layer = $("bgLayer");
-  const img = new Image();
-  img.onload = () => {
-    layer.style.backgroundImage = `url("${url}")`;
-    layer.style.opacity = 1;
-  };
-  img.src = url;
+  $("bgLayer").style.backgroundImage = `url("${url}")`;
+  $("bgLayer").style.opacity = 1;
   $("bgLabel").textContent = backgroundName(settings.bgIndex);
+}
+
+// Preload all background images so switching is instant.
+function preloadAllBackgrounds() {
+  backgrounds.forEach(url => { const img = new Image(); img.src = url; });
 }
 
 // Cycle backgrounds. step is +1 or -1.
