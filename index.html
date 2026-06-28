@@ -2993,13 +2993,6 @@ $("authToggle").addEventListener("click", () => {
   $("authSwitchText").textContent = isSignUp ? "Already have an account?" : "New here?";
   $("authToggle").textContent = isSignUp ? "Sign in" : "Create an account";
 });
-// Placeholder actions so the buttons feel alive until real auth is wired up.
-$("authSubmit").addEventListener("click", () => {
-  alert((isSignUp ? "Sign-up" : "Sign-in") + " isn't connected yet — front-end only for now.");
-});
-$("googleBtn").addEventListener("click", () => {
-  alert("Google sign-in isn't connected yet — front-end only for now.");
-});
 
 // (Ambient sound player removed — Spotify handles sound now.)
 
