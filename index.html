@@ -3764,9 +3764,7 @@ async function getGoogleToken() {
   if (gAccessToken && Date.now() < gTokenExpiry) return gAccessToken;
   await loadGIS();
 
-  // Get the actual client ID from Firebase config
-  // The OAuth client ID is the web client ID from Firebase Auth
-  const clientId = await fetchWebClientId();
+  const clientId = GOOGLE_CLIENT_ID;
 
   return new Promise((resolve, reject) => {
     const client = google.accounts.oauth2.initTokenClient({
