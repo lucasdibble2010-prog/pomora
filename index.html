@@ -549,17 +549,7 @@
   /* (#6) PAUSE LIGHTING: a soft radial glow that gently eases IN when paused
      and fades out on resume. It sits above the background but below the page
      content's interactions (pointer-events:none). */
-  #pauseGlow {
-    position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    /* a soft light centered a little above the middle (near the timer) */
-    background: radial-gradient(circle at 50% 42%,
-                rgba(255, 255, 255, 0.16),   /* >>> glow INTENSITY (raise/lower the 0.16) <<< */
-                rgba(255, 255, 255, 0) 60%);
-    opacity: 0;
-    transition: opacity 1.6s var(--ease-pause); /* eases in, then settles */
-  }
-  body.is-paused #pauseGlow { opacity: 1; }
-  @media (prefers-reduced-motion: reduce) { #pauseGlow { transition: opacity 0.3s ease; } }
+  #pauseGlow { display: none; }
 
   /* The little bottom control bar to cycle background images */
   .bg-controls {
