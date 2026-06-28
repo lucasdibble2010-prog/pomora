@@ -2129,15 +2129,19 @@ function applyBackground() {
     $("bgLabel").textContent = "Custom image";
     return;
   }
-  if (backgrounds.length === 0) {       // no preset images found
+  if (backgrounds.length === 0) {
     $("bgLabel").textContent = "No images";
     return;
   }
   const url = backgrounds[settings.bgIndex];
+  const layer = $("bgLayer");
   const img = new Image();
   img.onload = () => {
-    $("bgLayer").style.backgroundImage = `url("${url}")`;
-    $("bgLayer").style.opacity = 1;
+    layer.style.opacity = 0;
+    setTimeout(() => {
+      layer.style.backgroundImage = `url("${url}")`;
+      layer.style.opacity = 1;
+    }, 400);
   };
   img.src = url;
   $("bgLabel").textContent = backgroundName(settings.bgIndex);
