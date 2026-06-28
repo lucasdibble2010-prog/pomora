@@ -532,19 +532,10 @@
   }
   /* (#2) NEUTRAL black dim only — no color tint, so the background photo keeps
      its ORIGINAL, true colors (just slightly darkened for text readability). */
-  #bgOverlay {
-    position: fixed; inset: 0; z-index: -1;
-    background: rgba(0, 0, 0, 0.22);
-    transition: background var(--theme-fade) ease-in-out; /* (#4) cross-fade veil */
-  }
+  #bgOverlay { display: none; }
   /* Extra dim that fades IN when the timer starts (focus mode), so the timer
      stands out, and fades OUT on pause/reset. */
-  #startDim {
-    position: fixed; inset: 0; z-index: -1;
-    background: #000; opacity: 0; pointer-events: none;
-    transition: opacity 0.9s var(--ease);
-  }
-  body.focus-mode #startDim { opacity: 0.25; } /* >>> dim amount (0.25 = 25%) <<< */
+  #startDim { display: none; }
 
   /* (#6) PAUSE LIGHTING: a soft radial glow that gently eases IN when paused
      and fades out on resume. It sits above the background but below the page
@@ -2108,11 +2099,8 @@ function applyBackground() {
   const layer = $("bgLayer");
   const img = new Image();
   img.onload = () => {
-    layer.style.opacity = 0;
-    setTimeout(() => {
-      layer.style.backgroundImage = `url("${url}")`;
-      layer.style.opacity = 1;
-    }, 400);
+    layer.style.backgroundImage = `url("${url}")`;
+    layer.style.opacity = 1;
   };
   img.src = url;
   $("bgLabel").textContent = backgroundName(settings.bgIndex);
