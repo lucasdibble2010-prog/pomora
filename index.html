@@ -4263,6 +4263,8 @@ let srUnsubMembers = null;
 let srPresenceInterval = null;
 let srStudySeconds = 0;
 let srStudyInterval = null;
+let srLastMembers = [];      // last snapshot from Firestore (with _received time)
+let srTickInterval = null;   // 1-second loop that re-renders interpolated times
 
 function srOpen() {
   $("studyRoomOverlay").classList.add("open");
@@ -4444,11 +4446,13 @@ function srStopPresence() {
   if (srPresenceInterval) { clearInterval(srPresenceInterval); srPresenceInterval = null; }
 }
 
-// Count study seconds while in a room
+// Count study seconds while in a room, and re-render the grid every second so
+// everyone's timer ticks smoothly (instead of jumping every 10s on DB sync).
 function srStartStudyTimer() {
   srStopStudyTimer();
   srStudyInterval = setInterval(() => {
     if (state.running && state.mode === "focus") srStudySeconds++;
+    srRenderMembers(); // tick the displayed times every second
   }, 1000);
 }
 function srStopStudyTimer() {
@@ -4478,29 +4482,48 @@ function srListenMembers() {
         if (oa !== ob) return oa - ob;
         return (b.studySeconds || 0) - (a.studySeconds || 0);
       });
-      srRenderMembers(members);
+      // Stamp when we received this data so we can interpolate between syncs.
+      members.forEach(m => { m._received = now; });
+      srLastMembers = members;
+      srRenderMembers();
     });
 }
 function srStopListening() {
   if (srUnsubMembers) { srUnsubMembers(); srUnsubMembers = null; }
 }
 
-function srRenderMembers(members) {
+function srRenderMembers() {
   const el = $("srMembers");
+  const members = srLastMembers;
   $("srMemberCount").textContent = members.length + " studying";
   if (members.length === 0) {
     el.innerHTML = '<p class="sr-status-msg">No one here yet...</p>';
     return;
   }
+  const myId = srMyId();
+  const now = Date.now();
   let html = "";
   for (const m of members) {
-    const isYou = m.id === srMyId();
+    const isYou = m.id === myId;
     const name = escapeHtml(m.name || "Anonymous");
     const initial = (m.name || "A")[0].toUpperCase();
     const color = srAvatarColor(m.name || "A");
-    const statusClass = m.status === "focusing" ? "is-focusing" : m.status === "break" ? "is-break" : "is-idle";
-    const statusLabel = m.status === "focusing" ? "Focusing" : m.status === "break" ? "On Break" : "Idle";
-    const time = srFormatTime(m.studySeconds || 0);
+    // Determine displayed time: for YOU use the live local counter; for others,
+    // interpolate by adding seconds elapsed since their last sync if focusing.
+    let displaySeconds;
+    if (isYou) {
+      displaySeconds = srStudySeconds;
+    } else {
+      displaySeconds = m.studySeconds || 0;
+      if (m.status === "focusing" && m._received) {
+        displaySeconds += Math.floor((now - m._received) / 1000);
+      }
+    }
+    // Status reflects this client's live timer for your own tile.
+    const status = isYou ? srMyStatus() : m.status;
+    const statusClass = status === "focusing" ? "is-focusing" : status === "break" ? "is-break" : "is-idle";
+    const statusLabel = status === "focusing" ? "Focusing" : status === "break" ? "On Break" : "Idle";
+    const time = srFormatTime(displaySeconds);
     html += `<div class="sr-member ${statusClass}${isYou ? " is-you" : ""}">
       <div class="sr-avatar" style="background:${color}">${initial}</div>
       <div class="sr-member-name">${name}${isYou ? " (you)" : ""}</div>
@@ -4524,6 +4547,7 @@ async function srLeaveRoom() {
   srStopListening();
   srCurrentRoom = null;
   srStudySeconds = 0;
+  srLastMembers = [];
   localStorage.removeItem("pomora.studyRoom");
   srShowLobby();
 }
