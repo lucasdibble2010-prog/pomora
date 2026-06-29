@@ -529,8 +529,7 @@
   #bgLayer {
     position: fixed; inset: 0; z-index: -2;
     background-size: cover; background-position: center top; background-repeat: no-repeat;
-    opacity: 0;                       /* starts hidden; JS fades it to 1 on load */
-    transition: opacity 0.8s ease;    /* the ~0.8s background fade-in */
+    opacity: 1;
   }
   /* (#2) NEUTRAL black dim only — no color tint, so the background photo keeps
      its ORIGINAL, true colors (just slightly darkened for text readability). */
@@ -693,6 +692,118 @@
   .lb-name { flex: 1; font-weight: 600; font-size: 0.92rem; color: #222; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lb-stats { display: flex; gap: 12px; font-size: 0.78rem; color: #666; }
   .lb-stats span { white-space: nowrap; }
+
+  /* ===== STUDY ROOM ===== */
+  #studyRoomOverlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    display: none; align-items: flex-start; justify-content: center;
+    padding: 40px 16px; overflow-y: auto; z-index: 60;
+  }
+  #studyRoomOverlay.open { display: flex; }
+  .sr-panel {
+    background: #1a1a2e; color: #e0e0e0; border-radius: 18px;
+    width: 100%; max-width: 480px; padding: 28px;
+    font-family: var(--font-settings);
+  }
+  .sr-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .sr-head h2 { color: #fff; font-size: 1.3rem; margin: 0; }
+  .sr-head .x { background: none; border: none; color: #888; font-size: 1.4rem; cursor: pointer; }
+  .sr-head .x:hover { color: #fff; }
+
+  /* Lobby (create/join/public) */
+  .sr-lobby { display: flex; flex-direction: column; gap: 12px; }
+  .sr-action-btn {
+    display: flex; align-items: center; gap: 14px;
+    background: #16213e; border: 1px solid #2a2a4a; border-radius: 14px;
+    padding: 18px; cursor: pointer; transition: background 0.2s;
+    color: #e0e0e0; font-family: var(--font-settings);
+    font-size: 0.95rem; font-weight: 600;
+  }
+  .sr-action-btn:hover { background: #1f3060; }
+  .sr-action-btn .sr-icon { font-size: 1.6rem; }
+  .sr-action-btn .sr-btn-text { text-align: left; }
+  .sr-action-btn .sr-btn-text small { display: block; font-weight: 400; font-size: 0.78rem; color: #888; margin-top: 2px; }
+
+  /* Join form */
+  .sr-join-form { display: flex; gap: 8px; margin-top: 12px; }
+  .sr-join-form input {
+    flex: 1; background: #16213e; border: 1px solid #2a2a4a; border-radius: 10px;
+    padding: 12px 14px; color: #fff; font-size: 1.1rem; letter-spacing: 4px;
+    text-align: center; font-family: var(--font-display);
+  }
+  .sr-join-form input::placeholder { letter-spacing: 1px; color: #555; }
+  .sr-join-form button {
+    background: var(--accent, #e07a3a); border: none; border-radius: 10px;
+    padding: 12px 20px; color: #fff; font-weight: 700; cursor: pointer;
+    font-family: var(--font-settings);
+  }
+
+  /* Active room view */
+  .sr-room { display: none; flex-direction: column; gap: 16px; }
+  .sr-room.active { display: flex; }
+  .sr-room-info {
+    display: flex; align-items: center; justify-content: space-between;
+    background: #16213e; border-radius: 12px; padding: 12px 16px;
+  }
+  .sr-room-code {
+    font-family: var(--font-display); font-size: 1.4rem; font-weight: 700;
+    letter-spacing: 3px; color: var(--accent, #e07a3a);
+  }
+  .sr-copy-btn {
+    background: #2a2a4a; border: none; border-radius: 8px; color: #ccc;
+    padding: 8px 14px; font-size: 0.8rem; cursor: pointer; font-family: var(--font-settings);
+  }
+  .sr-copy-btn:hover { background: #3a3a5a; }
+  .sr-member-count { font-size: 0.82rem; color: #888; }
+
+  /* Members grid */
+  .sr-members {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 10px;
+  }
+  .sr-member {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    background: #16213e; border-radius: 14px; padding: 16px 8px;
+    position: relative; transition: border 0.3s;
+    border: 2px solid transparent;
+  }
+  .sr-member.is-focusing { border-color: #4caf50; }
+  .sr-member.is-break { border-color: #ff9800; }
+  .sr-member.is-idle { border-color: #555; }
+  .sr-member.is-you { background: #1a2744; }
+  .sr-avatar {
+    width: 48px; height: 48px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.5rem; font-weight: 700; color: #fff;
+  }
+  .sr-member-name {
+    font-size: 0.78rem; font-weight: 600; color: #ddd;
+    max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    text-align: center;
+  }
+  .sr-member-time {
+    font-family: var(--font-display); font-size: 0.9rem; font-weight: 700; color: #fff;
+  }
+  .sr-member-status {
+    font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .sr-member.is-focusing .sr-member-status { color: #4caf50; }
+  .sr-member.is-break .sr-member-status { color: #ff9800; }
+  .sr-member.is-idle .sr-member-status { color: #666; }
+
+  .sr-leave-btn {
+    background: #c44; border: none; border-radius: 10px;
+    padding: 12px; color: #fff; font-weight: 700; cursor: pointer;
+    font-size: 0.95rem; font-family: var(--font-settings);
+    margin-top: 4px;
+  }
+  .sr-leave-btn:hover { background: #d55; }
+  .sr-status-msg {
+    text-align: center; font-size: 0.85rem; color: #888; padding: 8px 0;
+  }
 
   /* The bar chart is just flexbox columns whose heights are set in JS. */
   .chart {
@@ -1180,6 +1291,7 @@
     </div>
     <div class="top-buttons">
       <!-- Notes is an IN-APP view (opens an overlay) so the timer keeps running. -->
+      <button class="icon-btn" id="studyRoomBtn">👥 Study Room</button>
       <button class="icon-btn" id="notesBtn">📝 Notes</button>
       <button class="icon-btn" id="settingsBtn">⚙ Settings</button>
     </div>
@@ -1428,6 +1540,52 @@
         <textarea id="noteContent" placeholder="Start typing…"></textarea>
       </div>
     </section>
+  </div>
+
+  <!-- ===================================================================
+       STUDY ROOM OVERLAY
+       =================================================================== -->
+  <div id="studyRoomOverlay">
+    <div class="sr-panel">
+      <div class="sr-head">
+        <h2 id="srTitle">Study Room</h2>
+        <button class="x" id="srCloseX" title="Close">✕</button>
+      </div>
+
+      <!-- LOBBY: shown when not in a room -->
+      <div class="sr-lobby" id="srLobby">
+        <button class="sr-action-btn" id="srCreateBtn">
+          <span class="sr-icon">🏠</span>
+          <span class="sr-btn-text">Create Room<small>Get a code to share with friends</small></span>
+        </button>
+        <button class="sr-action-btn" id="srJoinToggle">
+          <span class="sr-icon">🔑</span>
+          <span class="sr-btn-text">Join Room<small>Enter a friend's room code</small></span>
+        </button>
+        <div class="sr-join-form" id="srJoinForm" style="display:none;">
+          <input type="text" id="srCodeInput" placeholder="CODE" maxlength="6" autocomplete="off" />
+          <button id="srJoinBtn">Join</button>
+        </div>
+        <button class="sr-action-btn" id="srPublicBtn">
+          <span class="sr-icon">🌍</span>
+          <span class="sr-btn-text">Study Together<small>Join a public room with others</small></span>
+        </button>
+        <p class="sr-status-msg" id="srLobbyMsg"></p>
+      </div>
+
+      <!-- ACTIVE ROOM: shown when inside a room -->
+      <div class="sr-room" id="srRoom">
+        <div class="sr-room-info">
+          <div>
+            <div class="sr-room-code" id="srRoomCode"></div>
+            <div class="sr-member-count" id="srMemberCount"></div>
+          </div>
+          <button class="sr-copy-btn" id="srCopyCode">Copy Code</button>
+        </div>
+        <div class="sr-members" id="srMembers"></div>
+        <button class="sr-leave-btn" id="srLeaveBtn">Leave Room</button>
+      </div>
+    </div>
   </div>
 
   <!-- ===================================================================
@@ -3371,7 +3529,16 @@ function init() {
   renderTime();
   renderTasks();
 
-  // New features: restore saved background + alarm volume.
+  // Show the saved background instantly (before async detection finishes).
+  if (settings.homeBgCustom) {
+    $("bgLayer").style.backgroundImage = `url("${settings.homeBgCustom}")`;
+    $("bgLayer").style.opacity = 1;
+  } else {
+    const idx = settings.bgIndex || 0;
+    $("bgLayer").style.backgroundImage = `url("images/background${idx + 1}.jpg")`;
+    $("bgLayer").style.opacity = 1;
+    $("bgLabel").textContent = backgroundName(idx);
+  }
   detectBackgrounds(); // auto-finds images/background1.jpg, background2.jpg, ...
   $("alertVolume").value = settings.alertVolume; // alarm volume slider
   applyFonts();           // restore the per-element font choices
@@ -4080,6 +4247,337 @@ const _notionSessionObs = new MutationObserver(() => {
   }
 });
 _notionSessionObs.observe(sessionCountEl, { childList: true, characterData: true, subtree: true });
+
+/* ============================================================
+   STUDY ROOM — real-time rooms powered by Firestore
+   ============================================================ */
+
+const AVATAR_COLORS = [
+  "#e07a3a","#4caf50","#2196f3","#9c27b0","#f44336",
+  "#00bcd4","#ff9800","#e91e63","#3f51b5","#009688",
+  "#ff5722","#607d8b","#795548","#cddc39","#8bc34a",
+];
+
+let srCurrentRoom = null;
+let srUnsubMembers = null;
+let srPresenceInterval = null;
+let srStudySeconds = 0;
+let srStudyInterval = null;
+
+function srOpen() {
+  $("studyRoomOverlay").classList.add("open");
+  if (!srCurrentRoom) srShowLobby();
+}
+function srClose() { $("studyRoomOverlay").classList.remove("open"); }
+
+$("studyRoomBtn").addEventListener("click", srOpen);
+$("srCloseX").addEventListener("click", srClose);
+$("studyRoomOverlay").addEventListener("click", (e) => {
+  if (e.target === $("studyRoomOverlay")) srClose();
+});
+
+function srShowLobby() {
+  $("srLobby").style.display = "";
+  $("srRoom").classList.remove("active");
+  $("srTitle").textContent = "Study Room";
+  $("srLobbyMsg").textContent = "";
+  $("srJoinForm").style.display = "none";
+}
+
+function srShowRoom() {
+  $("srLobby").style.display = "none";
+  $("srRoom").classList.add("active");
+}
+
+function srGenCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+function srMyName() {
+  if (currentUser) return settings.userName || currentUser.displayName || currentUser.email?.split("@")[0] || "Anonymous";
+  return settings.userName || "Guest";
+}
+
+function srMyId() {
+  return currentUser ? currentUser.uid : (localStorage.getItem("pomora.guestId") || srInitGuestId());
+}
+
+function srInitGuestId() {
+  const id = "guest_" + Math.random().toString(36).slice(2, 10);
+  localStorage.setItem("pomora.guestId", id);
+  return id;
+}
+
+function srAvatarColor(name) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function srMyStatus() {
+  if (state.running && state.mode === "focus") return "focusing";
+  if (state.running) return "break";
+  return "idle";
+}
+
+function srFormatTime(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+  return `${m}:${String(s).padStart(2,"0")}`;
+}
+
+// Create a new room
+async function srCreateRoom(isPublic) {
+  if (!srRequireAuth()) return;
+  $("srLobbyMsg").textContent = "Creating room...";
+  const code = srGenCode();
+  try {
+    await db.collection("studyRooms").doc(code).set({
+      createdBy: srMyId(),
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      isPublic: !!isPublic,
+      active: true
+    });
+    await srJoinRoom(code);
+  } catch (e) {
+    $("srLobbyMsg").textContent = "Failed to create room.";
+  }
+}
+
+// Join an existing room by code
+async function srJoinRoom(code) {
+  code = code.toUpperCase().trim();
+  if (!code) return;
+  $("srLobbyMsg").textContent = "Joining...";
+  try {
+    const roomRef = db.collection("studyRooms").doc(code);
+    const roomSnap = await roomRef.get();
+    if (!roomSnap.exists || !roomSnap.data().active) {
+      $("srLobbyMsg").textContent = "Room not found or expired.";
+      return;
+    }
+    srCurrentRoom = code;
+    localStorage.setItem("pomora.studyRoom", code);
+
+    // Add self as member
+    await roomRef.collection("members").doc(srMyId()).set({
+      name: srMyName(),
+      status: srMyStatus(),
+      studySeconds: 0,
+      joinedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    srStudySeconds = 0;
+    srStartPresence();
+    srStartStudyTimer();
+    srListenMembers();
+    srShowRoom();
+    $("srRoomCode").textContent = code;
+    $("srTitle").textContent = "Study Room";
+  } catch (e) {
+    $("srLobbyMsg").textContent = "Failed to join room.";
+  }
+}
+
+// Join a public room (find one with space, or create one)
+async function srJoinPublic() {
+  if (!srRequireAuth()) return;
+  $("srLobbyMsg").textContent = "Finding a room...";
+  try {
+    const snap = await db.collection("studyRooms")
+      .where("isPublic", "==", true)
+      .where("active", "==", true)
+      .orderBy("createdAt", "desc")
+      .limit(10)
+      .get();
+
+    let joined = false;
+    for (const doc of snap.docs) {
+      const membersSnap = await doc.ref.collection("members").get();
+      if (membersSnap.size < 12) {
+        await srJoinRoom(doc.id);
+        joined = true;
+        break;
+      }
+    }
+    if (!joined) {
+      await srCreateRoom(true);
+    }
+  } catch (e) {
+    $("srLobbyMsg").textContent = "Could not find a room. Try again.";
+  }
+}
+
+function srRequireAuth() {
+  if (currentUser || localStorage.getItem("pomora.guestId")) return true;
+  if (!currentUser) {
+    srInitGuestId();
+    return true;
+  }
+  return true;
+}
+
+// Update presence every 10 seconds
+function srStartPresence() {
+  srStopPresence();
+  const update = () => {
+    if (!srCurrentRoom) return;
+    db.collection("studyRooms").doc(srCurrentRoom)
+      .collection("members").doc(srMyId())
+      .update({
+        status: srMyStatus(),
+        studySeconds: srStudySeconds,
+        name: srMyName(),
+        lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+      }).catch(() => {});
+  };
+  update();
+  srPresenceInterval = setInterval(update, 10000);
+}
+function srStopPresence() {
+  if (srPresenceInterval) { clearInterval(srPresenceInterval); srPresenceInterval = null; }
+}
+
+// Count study seconds while in a room
+function srStartStudyTimer() {
+  srStopStudyTimer();
+  srStudyInterval = setInterval(() => {
+    if (state.running && state.mode === "focus") srStudySeconds++;
+  }, 1000);
+}
+function srStopStudyTimer() {
+  if (srStudyInterval) { clearInterval(srStudyInterval); srStudyInterval = null; }
+}
+
+// Listen for real-time member updates
+function srListenMembers() {
+  srStopListening();
+  srUnsubMembers = db.collection("studyRooms").doc(srCurrentRoom)
+    .collection("members")
+    .onSnapshot((snap) => {
+      const members = [];
+      const now = Date.now();
+      snap.forEach(doc => {
+        const d = doc.data();
+        const lastSeen = d.lastSeen?.toMillis?.() || 0;
+        // Only show members seen in the last 60 seconds
+        if (now - lastSeen < 60000 || doc.id === srMyId()) {
+          members.push({ id: doc.id, ...d });
+        }
+      });
+      // Sort: focusing first, then by study time descending
+      members.sort((a, b) => {
+        const order = { focusing: 0, break: 1, idle: 2 };
+        const oa = order[a.status] ?? 2, ob = order[b.status] ?? 2;
+        if (oa !== ob) return oa - ob;
+        return (b.studySeconds || 0) - (a.studySeconds || 0);
+      });
+      srRenderMembers(members);
+    });
+}
+function srStopListening() {
+  if (srUnsubMembers) { srUnsubMembers(); srUnsubMembers = null; }
+}
+
+function srRenderMembers(members) {
+  const el = $("srMembers");
+  $("srMemberCount").textContent = members.length + " studying";
+  if (members.length === 0) {
+    el.innerHTML = '<p class="sr-status-msg">No one here yet...</p>';
+    return;
+  }
+  let html = "";
+  for (const m of members) {
+    const isYou = m.id === srMyId();
+    const name = escapeHtml(m.name || "Anonymous");
+    const initial = (m.name || "A")[0].toUpperCase();
+    const color = srAvatarColor(m.name || "A");
+    const statusClass = m.status === "focusing" ? "is-focusing" : m.status === "break" ? "is-break" : "is-idle";
+    const statusLabel = m.status === "focusing" ? "Focusing" : m.status === "break" ? "On Break" : "Idle";
+    const time = srFormatTime(m.studySeconds || 0);
+    html += `<div class="sr-member ${statusClass}${isYou ? " is-you" : ""}">
+      <div class="sr-avatar" style="background:${color}">${initial}</div>
+      <div class="sr-member-name">${name}${isYou ? " (you)" : ""}</div>
+      <div class="sr-member-time">${time}</div>
+      <div class="sr-member-status">${statusLabel}</div>
+    </div>`;
+  }
+  el.innerHTML = html;
+}
+
+// Leave the current room
+async function srLeaveRoom() {
+  if (srCurrentRoom) {
+    try {
+      await db.collection("studyRooms").doc(srCurrentRoom)
+        .collection("members").doc(srMyId()).delete();
+    } catch (e) {}
+  }
+  srStopPresence();
+  srStopStudyTimer();
+  srStopListening();
+  srCurrentRoom = null;
+  srStudySeconds = 0;
+  localStorage.removeItem("pomora.studyRoom");
+  srShowLobby();
+}
+
+// Copy room code
+$("srCopyCode").addEventListener("click", () => {
+  if (srCurrentRoom) {
+    navigator.clipboard.writeText(srCurrentRoom).then(() => {
+      $("srCopyCode").textContent = "Copied!";
+      setTimeout(() => { $("srCopyCode").textContent = "Copy Code"; }, 2000);
+    });
+  }
+});
+
+// Button handlers
+$("srCreateBtn").addEventListener("click", () => srCreateRoom(false));
+$("srJoinToggle").addEventListener("click", () => {
+  const form = $("srJoinForm");
+  form.style.display = form.style.display === "none" ? "flex" : "none";
+  if (form.style.display === "flex") $("srCodeInput").focus();
+});
+$("srJoinBtn").addEventListener("click", () => {
+  const code = $("srCodeInput").value.trim();
+  if (code.length >= 4) srJoinRoom(code);
+});
+$("srCodeInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); $("srJoinBtn").click(); }
+});
+$("srPublicBtn").addEventListener("click", () => srJoinPublic());
+$("srLeaveBtn").addEventListener("click", () => srLeaveRoom());
+
+// Auto-rejoin room on page load
+(function srAutoRejoin() {
+  const saved = localStorage.getItem("pomora.studyRoom");
+  if (saved) {
+    db.collection("studyRooms").doc(saved).get().then(snap => {
+      if (snap.exists && snap.data().active) {
+        srJoinRoom(saved);
+      } else {
+        localStorage.removeItem("pomora.studyRoom");
+      }
+    }).catch(() => { localStorage.removeItem("pomora.studyRoom"); });
+  }
+})();
+
+// Clean up stale members (older than 60s) from room on each presence tick
+// The render function already filters them out visually.
+
+// Close study room with Escape
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && $("studyRoomOverlay").classList.contains("open")) {
+    srClose();
+  }
+});
 
 </script>
 </body>
