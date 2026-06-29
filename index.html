@@ -755,8 +755,23 @@
     margin-bottom: 20px;
   }
   .sr-head h2 { color: #fff; font-size: 1.3rem; margin: 0; }
-  .sr-head .x { background: none; border: none; color: #888; font-size: 1.4rem; cursor: pointer; }
+  .sr-head .x { background: none; border: none; color: #888; font-size: 1.4rem; cursor: pointer; line-height: 1; }
   .sr-head .x:hover { color: #fff; }
+  .sr-head-actions { display: flex; align-items: center; gap: 8px; }
+
+  /* "Make it public" toggle row under Create Room */
+  .sr-public-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; padding: 2px 6px 8px;
+  }
+  .sr-public-label { font-size: 0.84rem; font-weight: 600; color: #b8b8c8; cursor: pointer; }
+
+  /* Fullscreen states for the study room (real Fullscreen API + class fallback) */
+  #studyRoomOverlay:fullscreen, #studyRoomOverlay:-webkit-full-screen { background: #0b0c14; align-items: center; }
+  #studyRoomOverlay.fs-fallback { background: #0b0c14; align-items: center; z-index: 9999; }
+  #studyRoomOverlay:fullscreen .sr-panel,
+  #studyRoomOverlay:-webkit-full-screen .sr-panel,
+  #studyRoomOverlay.fs-fallback .sr-panel { max-width: 760px; }
 
   /* Lobby (create/join/public) */
   .sr-lobby { display: flex; flex-direction: column; gap: 12px; }
@@ -1608,7 +1623,10 @@
     <div class="sr-panel">
       <div class="sr-head">
         <h2 id="srTitle">Study Room</h2>
-        <button class="x" id="srCloseX" title="Close">✕</button>
+        <div class="sr-head-actions">
+          <button class="x" id="srFullscreenBtn" title="Fullscreen">⛶</button>
+          <button class="x" id="srCloseX" title="Close">✕</button>
+        </div>
       </div>
 
       <!-- LOBBY: shown when not in a room -->
@@ -1617,6 +1635,10 @@
           <span class="sr-icon">🏠</span>
           <span class="sr-btn-text">Create Room<small>Get a code to share with friends</small></span>
         </button>
+        <div class="sr-public-row">
+          <label for="srPublicToggle" class="sr-public-label">🌍 Make it public — anyone can join</label>
+          <label class="switch"><input type="checkbox" id="srPublicToggle" /><span class="slider"></span></label>
+        </div>
         <button class="sr-action-btn" id="srJoinToggle">
           <span class="sr-icon">🔑</span>
           <span class="sr-btn-text">Join Room<small>Enter a friend's room code</small></span>
@@ -4329,7 +4351,35 @@ function srOpen() {
   $("studyRoomOverlay").classList.add("open");
   if (!srCurrentRoom) srShowLobby();
 }
-function srClose() { $("studyRoomOverlay").classList.remove("open"); }
+function srClose() { srExitFullscreen(); $("studyRoomOverlay").classList.remove("open"); }
+
+// Fullscreen the whole study room overlay (real Fullscreen API, with a CSS
+// class fallback for browsers that block/lack it).
+function srToggleFullscreen() {
+  const el = $("studyRoomOverlay");
+  const isFs = document.fullscreenElement === el || el.classList.contains("fs-fallback");
+  if (isFs) {
+    srExitFullscreen();
+  } else {
+    if (el.requestFullscreen) el.requestFullscreen().catch(() => el.classList.add("fs-fallback"));
+    else el.classList.add("fs-fallback");
+    $("srFullscreenBtn").title = "Exit fullscreen";
+  }
+}
+function srExitFullscreen() {
+  const el = $("studyRoomOverlay");
+  if (document.fullscreenElement === el && document.exitFullscreen) document.exitFullscreen();
+  el.classList.remove("fs-fallback");
+  $("srFullscreenBtn").title = "Fullscreen";
+}
+$("srFullscreenBtn").addEventListener("click", srToggleFullscreen);
+// Reset the button if the user leaves fullscreen via Esc.
+document.addEventListener("fullscreenchange", () => {
+  if (document.fullscreenElement !== $("studyRoomOverlay")) {
+    $("studyRoomOverlay").classList.remove("fs-fallback");
+    $("srFullscreenBtn").title = "Fullscreen";
+  }
+});
 
 $("studyRoomBtn").addEventListener("click", srOpen);
 $("srCloseX").addEventListener("click", srClose);
@@ -4622,7 +4672,7 @@ $("srCopyCode").addEventListener("click", () => {
 });
 
 // Button handlers
-$("srCreateBtn").addEventListener("click", () => srCreateRoom(false));
+$("srCreateBtn").addEventListener("click", () => srCreateRoom($("srPublicToggle").checked));
 $("srJoinToggle").addEventListener("click", () => {
   const form = $("srJoinForm");
   form.style.display = form.style.display === "none" ? "flex" : "none";
